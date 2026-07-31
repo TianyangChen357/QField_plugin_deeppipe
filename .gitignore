@@ -1,0 +1,7 @@
+.DS_Store
+__MACOSX/
+*.log
+
+# Generated debugging bundle; the small installable plugin ZIP is tracked.
+dist/DeepPipe_QField_API_Test_*.zip
+

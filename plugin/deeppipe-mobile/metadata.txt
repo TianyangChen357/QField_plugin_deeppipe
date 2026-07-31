@@ -1,0 +1,6 @@
+[general]
+name=DeepPipe Mobile
+description=Touch-first stormwater pipe prediction and service-life assessment for QField
+author=Tianyang Chen / DeepPipe Team
+icon=icon.svg
+version=0.2.0
