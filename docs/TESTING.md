@@ -1,4 +1,4 @@
-# DeepPipe Mobile 0.2.0 test matrix
+# DeepPipe Mobile 0.3.0 test matrix
 
 ## Baseline
 
@@ -14,10 +14,15 @@ Use only synthetic/non-sensitive inlets against the current unauthenticated test
 
 | Test | Expected |
 |---|---|
-| Install `deeppipe-mobile-v0.2.0.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
-| Open QField with no project | Toolbar/panel stay safe and report that project setup is required. |
-| Open demo project | `DeepPipe project detected`; `Inlets` and `node_id` resolve. |
-| Switch to non-DeepPipe project | Tools disable; selection/result state clears; a server job is not silently cancelled. |
+| Install `deeppipe-mobile-v0.3.0.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
+| Open QField with no project | Toolbar/panel stay safe and report that a project must be opened. |
+| Open a plain project with no point layer | Setup explains that an inlet point layer is required; Assessment remains available once a map project is open. |
+| Open a plain project with one/multiple point layers | Setup suggests or lists point layers; user can choose a layer and ID field without editing project XML. |
+| Confirm setup, close, and reopen | The same project mapping is restored on this device. |
+| Open demo project | `Inlets` and `inlet_uuid` resolve from project defaults. |
+| Switch to another ordinary project | Selection/result state clears; the other project gets its own mapping; a server job is not silently cancelled. |
+| Open two same-title projects at different paths | Their mappings and pending jobs do not cross-contaminate. |
+| Rename/remove the configured field | Setup becomes actionable and blocks Prediction until a valid field is confirmed. |
 | Disable/re-enable plugin | No duplicate toolbar buttons or tap handlers after restart. |
 | Rotate with panel open | Drawer, selection bar, and action buttons remain usable. |
 
@@ -27,6 +32,13 @@ Use only synthetic/non-sensitive inlets against the current unauthenticated test
 |---|---|
 | Start selection | Drawer closes and bottom selection bar appears. |
 | Tap a point / tap it again | Exactly one inlet is added / removed. |
+| Dense points inside the tap tolerance | The nearest point is toggled. |
+| Switch to Box and drag a rectangle | All inlets intersecting the rectangle are added in one batch; map count updates once. |
+| Drag a tiny rectangle | Guidance appears; no accidental selection occurs. |
+| Repeat the same box | Existing inlets are not duplicated. |
+| Tap Visible | Every inlet in the current map view is added once. |
+| Select 100–500 points by Box/Visible | QField remains responsive and native selection updates as one batch. |
+| Switch back to Tap | Map taps work for individual corrections. |
 | Tap empty map | Guidance toast appears; count is unchanged. |
 | Rapid double tap | Handler throttles and QField remains responsive. |
 | Native selection exists first | Starting DeepPipe selection imports it. |
@@ -43,6 +55,7 @@ Test both EPSG:4326 and a projected North Carolina inlet layer. The current hit 
 | Fewer than 3 points | Predict button remains disabled. |
 | Missing/empty node ID | Submission blocks with a feature-specific message. |
 | Duplicate node ID | Submission blocks; server-side silent dropping is avoided. |
+| UUID values from multiple offline users | Unique text UUIDs pass; duplicated UUIDs block submission. |
 | Invalid WGS84 transformation | Live submission blocks. |
 | Valid projected points | Request coordinates are transformed to `[longitude, latitude]` and CRS is `EPSG:4326`. |
 | Tap Predict twice quickly | Only one POST occurs; all busy states disable resubmission. |
@@ -94,4 +107,5 @@ Inspect a live pipe feature for `job_id=<task-id>`, `analysis_mode=live_api`, an
 - `/health` proves only the web process responds; it is not a model/worker readiness guarantee.
 - Verify/fix server-side feet-based distance calculations for EPSG:4326 before interpreting model output.
 - Live layers are temporary; no GeoPackage write or QFieldCloud result sync yet.
+- Interactive project mappings are local to one device. Put optional DeepPipe defaults in the QGIS project when every team device should receive the same mapping.
 - Assessment/PyPASS and soil rasters remain mock/unconnected.

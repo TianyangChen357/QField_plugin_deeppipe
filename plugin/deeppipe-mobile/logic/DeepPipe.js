@@ -65,6 +65,89 @@ function isValidNodeId(value) {
     return typeof value === "number" && Number.isInteger(value) && Number.isFinite(value);
 }
 
+function stringList(values) {
+    var result = [];
+    if (!values || typeof values.length !== "number") return result;
+    for (var index = 0; index < values.length; index += 1) {
+        var value = String(values[index] === undefined || values[index] === null ? "" : values[index]).trim();
+        if (value && result.indexOf(value) < 0) result.push(value);
+    }
+    return result;
+}
+
+function suggestedNodeIdField(fieldNames, preferred) {
+    var names = stringList(fieldNames);
+    var requested = String(preferred || "").trim();
+    if (requested && names.indexOf(requested) >= 0) return requested;
+
+    var lowerToOriginal = {};
+    names.forEach(function (name) { lowerToOriginal[name.toLowerCase()] = name; });
+    var priorities = [
+        "inlet_uuid", "node_uuid", "asset_uuid", "uuid",
+        "node_id", "inlet_id", "asset_id", "assetid",
+        "structure_id", "globalid", "id", "objectid"
+    ];
+    for (var index = 0; index < priorities.length; index += 1) {
+        if (lowerToOriginal[priorities[index]]) return lowerToOriginal[priorities[index]];
+    }
+    return "";
+}
+
+function projectKey(projectPath, projectName) {
+    var path = String(projectPath || "").trim();
+    if (path) return "path:" + path;
+    var name = String(projectName || "Untitled QField project").trim();
+    return "title:" + (name || "Untitled QField project");
+}
+
+function parseProjectMappings(text) {
+    var parsed = tryParseJson(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return parsed;
+}
+
+function projectMapping(text, projectPath, projectName) {
+    var mappings = parseProjectMappings(text);
+    var pathKey = projectKey(projectPath, projectName);
+    var titleKey = projectKey("", projectName);
+    var mapping = mappings[pathKey] || mappings[titleKey];
+    return mapping && typeof mapping === "object" && !Array.isArray(mapping) ? mapping : null;
+}
+
+function updateProjectMapping(text, projectPath, projectName, mapping) {
+    var mappings = parseProjectMappings(text);
+    var normalized = {
+        layer_id: String(mapping && mapping.layer_id || ""),
+        layer_name: String(mapping && mapping.layer_name || ""),
+        node_id_field: String(mapping && mapping.node_id_field || ""),
+        confirmed_at: String(mapping && mapping.confirmed_at || new Date().toISOString())
+    };
+    mappings[projectKey(projectPath, projectName)] = normalized;
+    mappings[projectKey("", projectName)] = normalized;
+    return JSON.stringify(mappings);
+}
+
+function mergePointRecords(currentRecords, incomingRecords) {
+    var current = Array.isArray(currentRecords) ? currentRecords : [];
+    var incoming = Array.isArray(incomingRecords) ? incomingRecords : [];
+    var merged = current.slice();
+    var seen = {};
+    var added = 0;
+
+    current.forEach(function (record) {
+        if (record && Number.isFinite(Number(record.fid))) seen[String(record.fid)] = true;
+    });
+    incoming.forEach(function (record) {
+        if (!record || !Number.isFinite(Number(record.fid))) return;
+        var key = String(record.fid);
+        if (seen[key]) return;
+        seen[key] = true;
+        merged.push(record);
+        added += 1;
+    });
+    return { records: merged, added: added };
+}
+
 function validateSelectedPoints(points) {
     var rows = Array.isArray(points) ? points : [];
     var errors = [];

@@ -13,6 +13,7 @@
       "id": 1,
       "properties": {
         "node_id": "DP-001",
+        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f001",
         "captured_at": "2026-07-31T08:10:00-04:00",
         "status": "surveyed",
         "source": "synthetic_demo"
@@ -24,6 +25,7 @@
       "id": 2,
       "properties": {
         "node_id": "DP-002",
+        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f002",
         "captured_at": "2026-07-31T08:14:00-04:00",
         "status": "surveyed",
         "source": "synthetic_demo"
@@ -35,6 +37,7 @@
       "id": 3,
       "properties": {
         "node_id": "DP-003",
+        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f003",
         "captured_at": "2026-07-31T08:19:00-04:00",
         "status": "surveyed",
         "source": "synthetic_demo"
@@ -46,6 +49,7 @@
       "id": 4,
       "properties": {
         "node_id": "DP-004",
+        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f004",
         "captured_at": "2026-07-31T08:23:00-04:00",
         "status": "surveyed",
         "source": "synthetic_demo"
@@ -57,6 +61,7 @@
       "id": 5,
       "properties": {
         "node_id": "DP-005",
+        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f005",
         "captured_at": "2026-07-31T08:28:00-04:00",
         "status": "surveyed",
         "source": "synthetic_demo"
@@ -68,6 +73,7 @@
       "id": 6,
       "properties": {
         "node_id": "DP-006",
+        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f006",
         "captured_at": "2026-07-31T08:32:00-04:00",
         "status": "surveyed",
         "source": "synthetic_demo"
@@ -79,6 +85,7 @@
       "id": 7,
       "properties": {
         "node_id": "DP-007",
+        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f007",
         "captured_at": "2026-07-31T08:38:00-04:00",
         "status": "surveyed",
         "source": "synthetic_demo"
@@ -90,6 +97,7 @@
       "id": 8,
       "properties": {
         "node_id": "DP-008",
+        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f008",
         "captured_at": "2026-07-31T08:44:00-04:00",
         "status": "surveyed",
         "source": "synthetic_demo"
@@ -101,6 +109,7 @@
       "id": 9,
       "properties": {
         "node_id": "DP-009",
+        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f009",
         "captured_at": "2026-07-31T08:49:00-04:00",
         "status": "surveyed",
         "source": "synthetic_demo"
@@ -112,6 +121,7 @@
       "id": 10,
       "properties": {
         "node_id": "DP-010",
+        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f010",
         "captured_at": "2026-07-31T08:54:00-04:00",
         "status": "surveyed",
         "source": "synthetic_demo"
@@ -120,4 +130,3 @@
     }
   ]
 }
-

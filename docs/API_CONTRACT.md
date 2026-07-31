@@ -1,4 +1,4 @@
-# DeepPipe Mobile API contract — 0.2.0
+# DeepPipe Mobile API contract — 0.3.0
 
 Checked against `https://lab.yyworkshop.com/predapi/openapi.json` on 2026-07-31.
 
@@ -17,6 +17,8 @@ Observed response:
 This is a liveness check, not a complete worker/model/factor readiness check.
 
 ## Submit selected inlet points
+
+`node_id_field` may name a string UUID field. For multi-user/offline QField collection, the plugin recommends stable UUID strings generated once at feature creation; it does not regenerate IDs during submission.
 
 ```http
 POST https://lab.yyworkshop.com/predapi/api/pred/pred_deep
@@ -121,4 +123,4 @@ The client also handles string `detail`, queue-unavailable 503, malformed/empty 
 
 ## Assessment boundary
 
-Assessment remains mock-only in 0.2.0. No PyPASS request is issued, and no live Prediction job should be interpreted as a service-life assessment or material recommendation.
+Assessment remains mock-only in 0.3.0. No PyPASS request is issued, and no live Prediction job should be interpreted as a service-life assessment or material recommendation.

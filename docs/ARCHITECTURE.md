@@ -15,18 +15,19 @@ Official references:
 ```text
 QField project
   ├─ editable inlet layer
-  ├─ project custom properties
+  ├─ optional project defaults
   └─ project styles / future persistent result layers
           │
           ▼
 DeepPipe app-wide plugin
   ├─ touch-first drawer
-  ├─ map tap selection handler
+  ├─ tap / box / visible-area selection
+  ├─ device-local per-project mapping
   ├─ selection snapshot + validation
   ├─ prediction / assessment state
   └─ transport boundary
           │
-          ├─ v0.2 live Prediction client + mock fallback
+          ├─ v0.3 live Prediction client + mock fallback
           └─ mock Assessment client
                          │
                          ▼
@@ -37,16 +38,16 @@ The plugin never embeds the existing React/Leaflet portal. QField remains the so
 
 ## Mobile Prediction state
 
-1. Project is inspected for `DeepPipe` custom entries.
-2. Inlet layer and node-ID field are resolved.
+1. Point layers are discovered in any open project. A saved device mapping or optional `DeepPipe` project entries are used when valid; otherwise the user confirms the inlet layer and ID field once.
+2. Layer mappings are keyed primarily by project file path and layer ID, with project title/layer name used only as recovery fallbacks.
 3. User starts the explicit inlet-selection mode.
-4. Each map tap finds a point within a 16-pixel rectangle, toggles it in the plugin snapshot, and mirrors the snapshot to QGIS selection highlighting.
+4. The drawer closes. **Tap** toggles the nearest inlet in a 16-pixel search area, **Box** adds all inlets inside a dragged rectangle, and **Visible** adds all inlets in the current map view. Each action mirrors the batch snapshot to QGIS selection highlighting once.
 5. The snapshot is validated for count, node-ID validity/uniqueness, and geometry.
 6. Live mode transforms the snapshot to EPSG:4326 GeoJSON and submits it through QField's HTTP client; mock mode creates a deterministic local preview.
 7. Live mode persists the task ID, polls with network backoff/resume, then retrieves only the pipe-named GeoJSON.
 8. Live GeoJSON becomes a WGS84 memory layer; mock GeoJSON remains in the inlet-layer CRS.
 
-The selection handler is active only during the explicit map-selection state, is throttled to avoid rapid-tap re-entry, closes every feature iterator, and is deregistered when the plugin unloads.
+The selection handler is explicitly obtained from QField by object name, is active only during the map-selection state, is throttled to avoid rapid-tap re-entry, closes every feature iterator, and is deregistered when the plugin unloads. Box mode intentionally captures drag gestures until the user switches back to Tap mode.
 
 ## Mobile Assessment state
 
@@ -54,7 +55,7 @@ The prototype accepts either a map point or active GNSS fix. It then shows deter
 
 ## Persistence plan
 
-The v0.2 task ID is retained while a job is active, but the result is still an intentionally ephemeral memory layer. Production projects should pre-create GeoPackage layers for:
+The v0.3 task ID and device-local project mapping are retained in app settings, but the result is still an intentionally ephemeral memory layer. Phone-local mapping does not synchronize to other devices; team-wide defaults should be authored in the QGIS project. Production projects should pre-create GeoPackage layers for:
 
 - `deeppipe_predicted_pipes`
 - `deeppipe_predicted_structures`

@@ -11,24 +11,37 @@ Item {
     id: plugin
     objectName: "deepPipeMobilePlugin"
 
-    readonly property string pluginVersion: "0.2.0"
+    readonly property string pluginVersion: "0.3.0"
     readonly property string defaultApiBaseUrl: "https://lab.yyworkshop.com/predapi"
 
     property var mainWindow: iface.mainWindow()
     property var mapCanvas: iface.mapCanvas()
     property var positionSource: iface.positioning()
+    property var pointHandler: iface.findItemByObjectName("pointHandler")
 
-    property bool projectEnabled: false
+    property bool hasProject: false
     property string projectName: "No project"
+    property string projectPath: ""
+    property string currentProjectKey: ""
     property string schemaVersion: ""
+    property string setupState: "no_project"
+    property string setupMessage: "Open a QField project to begin."
+    readonly property bool projectReady: setupState === "ready"
+    readonly property bool assessmentReady: hasProject
     property var layerNames: []
+    property var layerIds: []
     property var inletLayer: null
+    property string inletLayerId: ""
     property string inletLayerName: ""
-    property string nodeIdField: "node_id"
+    property var fieldNames: []
+    property string nodeIdField: ""
+    property bool mappingConfirmed: false
+    property string mappingSource: ""
 
     property var selectedFids: []
     property var selectedPoints: []
     property string interactionMode: "idle"
+    property string inletSelectionMode: "tap"
     property double lastMapTapMs: 0
 
     property var predictionConfig: DeepPipe.predictionDefaults()
@@ -41,6 +54,7 @@ Item {
     property int mockPredictionStage: 0
 
     property string activeJobId: ""
+    property string activeJobProjectKey: ""
     property string activeJobProjectName: ""
     property int activeJobSelectedCount: 0
     property double activeJobThreshold: 0.85
@@ -68,6 +82,7 @@ Item {
         property bool useLiveApi: true
         property bool apiModeInitialized: false
         property string lastProjectName: ""
+        property string projectMappingsJson: "{}"
         property string pendingJobsJson: "[]"
     }
 
@@ -207,6 +222,7 @@ Item {
         }
         appSettings.pendingJobsJson = JSON.stringify([{
             job_id: activeJobId,
+            project_key: activeJobProjectKey,
             project_name: activeJobProjectName,
             selected_count: activeJobSelectedCount,
             threshold: activeJobThreshold,
@@ -217,6 +233,7 @@ Item {
     function clearActiveJob() {
         jobPollTimer.stop();
         activeJobId = "";
+        activeJobProjectKey = "";
         activeJobProjectName = "";
         activeJobSelectedCount = 0;
         activeJobThreshold = predictionConfig.classification_threshold;
@@ -225,18 +242,20 @@ Item {
     }
 
     function restorePendingJob() {
-        if (!projectEnabled) return;
+        if (!hasProject) return;
         if (!activeJobId) {
             var stored = DeepPipe.tryParseJson(appSettings.pendingJobsJson);
             if (!Array.isArray(stored) || stored.length === 0 || !stored[0].job_id) return;
             var pending = stored[0];
             activeJobId = String(pending.job_id);
+            activeJobProjectKey = String(pending.project_key || "");
             activeJobProjectName = String(pending.project_name || "");
             activeJobSelectedCount = Number(pending.selected_count || 0);
             activeJobThreshold = Number(pending.threshold || predictionConfig.classification_threshold);
         }
         predictionStatus = "queued";
-        if (activeJobProjectName && activeJobProjectName !== projectName) {
+        if ((activeJobProjectKey && activeJobProjectKey !== currentProjectKey) ||
+                (!activeJobProjectKey && activeJobProjectName && activeJobProjectName !== projectName)) {
             predictionMessage = "Saved job " + activeJobId + " belongs to project '" + activeJobProjectName + "'. Reopen that project to resume.";
             return;
         }
@@ -245,50 +264,161 @@ Item {
         jobPollTimer.restart();
     }
 
-    function layerByName(name) {
-        if (!qgisProject || !name) return null;
+    function layerById(layerId) {
+        if (!qgisProject || !layerId) return null;
         var layers = ProjectUtils.mapLayers(qgisProject);
-        for (var layerId in layers) {
-            if (String(layers[layerId].name) === String(name)) {
-                return layers[layerId];
-            }
-        }
-        return null;
+        return layers[String(layerId)] || null;
     }
 
-    function refreshLayerNames() {
+    function uniqueLayerIdByName(name) {
+        var match = "";
+        var count = 0;
+        var layers = qgisProject ? ProjectUtils.mapLayers(qgisProject) : {};
+        for (var layerId in layers) {
+            if (String(layers[layerId].name) === String(name) && layerIds.indexOf(String(layerId)) >= 0) {
+                match = String(layerId);
+                count += 1;
+            }
+        }
+        return count === 1 ? match : "";
+    }
+
+    function refreshLayerOptions() {
+        var options = [];
+        var duplicateCounts = {};
+        var layers = qgisProject ? ProjectUtils.mapLayers(qgisProject) : {};
+        for (var layerId in layers) {
+            var layer = layers[layerId];
+            if (layer && typeof layer.selectedFeatures === "function" &&
+                    typeof layer.geometryType === "function" &&
+                    layer.geometryType() === Qgis.GeometryType.Point) {
+                var layerName = String(layer.name);
+                duplicateCounts[layerName] = Number(duplicateCounts[layerName] || 0) + 1;
+                options.push({ id: String(layerId), name: layerName });
+            }
+        }
+        options.sort(function (left, right) {
+            return left.name.toLowerCase().localeCompare(right.name.toLowerCase());
+        });
+        var labels = [];
+        var ids = [];
+        options.forEach(function (option) {
+            labels.push(duplicateCounts[option.name] > 1
+                        ? option.name + " · " + option.id.slice(0, 8)
+                        : option.name);
+            ids.push(option.id);
+        });
+        layerNames = labels;
+        layerIds = ids;
+    }
+
+    function refreshFieldNames() {
         var names = [];
-        if (qgisProject) {
-            var layers = ProjectUtils.mapLayers(qgisProject);
-            for (var layerId in layers) {
-                var layer = layers[layerId];
-                if (layer && typeof layer.selectedFeatures === "function" &&
-                        typeof layer.geometryType === "function" &&
-                        layer.geometryType() === Qgis.GeometryType.Point) {
-                    names.push(String(layer.name));
+        try {
+            var fields = inletLayer ? inletLayer.fields : null;
+            var availableNames = fields ? fields.names : [];
+            if (typeof availableNames === "function") availableNames = availableNames();
+            names = DeepPipe.stringList(availableNames);
+        } catch (error) {
+            names = [];
+        }
+        names.sort(function (left, right) { return left.toLowerCase().localeCompare(right.toLowerCase()); });
+        fieldNames = names;
+    }
+
+    function suggestedLayerId() {
+        if (layerIds.length === 1) return String(layerIds[0]);
+        var preferredNames = ["inlets", "inlet", "catch basins", "catchbasins", "storm drains", "stormwater inlets", "nodes"];
+        var layers = qgisProject ? ProjectUtils.mapLayers(qgisProject) : {};
+        for (var preferredIndex = 0; preferredIndex < preferredNames.length; preferredIndex += 1) {
+            for (var layerIndex = 0; layerIndex < layerIds.length; layerIndex += 1) {
+                var candidateId = String(layerIds[layerIndex]);
+                if (layers[candidateId] && String(layers[candidateId].name).toLowerCase() === preferredNames[preferredIndex]) {
+                    return candidateId;
                 }
             }
         }
-        names.sort();
-        layerNames = names;
+        return "";
+    }
+
+    function refreshSetupState() {
+        if (!hasProject) {
+            setupState = "no_project";
+            setupMessage = "Open a QField project to begin.";
+        } else if (layerIds.length === 0) {
+            setupState = "no_point_layers";
+            setupMessage = "This project has no point layer. Add an inlet point layer first.";
+        } else if (!inletLayer || !inletLayerId) {
+            setupState = "needs_layer";
+            setupMessage = "Choose which point layer contains the stormwater inlets.";
+        } else if (!nodeIdField) {
+            setupState = "needs_field";
+            setupMessage = "Choose a stable unique ID field. A UUID text field is recommended for multi-user work.";
+        } else if (fieldNames.indexOf(nodeIdField) < 0) {
+            setupState = "invalid_field";
+            setupMessage = "The ID field '" + nodeIdField + "' is not present in " + inletLayerName + ".";
+        } else if (!mappingConfirmed) {
+            setupState = "needs_confirmation";
+            setupMessage = "Review the inlet layer and ID field, then confirm this project setup.";
+        } else {
+            setupState = "ready";
+            setupMessage = "Ready to select inlets from " + inletLayerName + " using " + nodeIdField + ".";
+        }
     }
 
     function loadProjectConfiguration(resetWorkflow) {
-        var previousProjectName = projectName;
-        var previousLayerName = inletLayerName;
-        var nextProjectName = qgisProject ? (ProjectUtils.title(qgisProject) || "Untitled QField project") : "No project";
-        projectName = nextProjectName;
-        projectEnabled = Boolean(iface.readProjectBoolEntry("DeepPipe", "enabled", false));
-        schemaVersion = String(iface.readProjectEntry("DeepPipe", "schema_version", ""));
-        var configuredLayer = String(iface.readProjectEntry("DeepPipe", "inlet_layer", "Inlets"));
-        var configuredNodeField = String(iface.readProjectEntry("DeepPipe", "node_id_field", "node_id"));
-        var configuredApiBase = String(iface.readProjectEntry("DeepPipe", "api_base_url", ""));
-        var configuredApiMode = String(iface.readProjectEntry("DeepPipe", "api_mode", "")).toLowerCase();
+        var previousProjectKey = currentProjectKey;
+        var previousLayerId = inletLayerId;
+        var rawProjectTitle = qgisProject ? String(ProjectUtils.title(qgisProject) || "") : "";
+        var nextProjectPath = qgisProject ? String(qgisProject.fileName || "") : "";
 
-        refreshLayerNames();
-        inletLayerName = configuredLayer;
-        inletLayer = layerByName(configuredLayer);
-        nodeIdField = configuredNodeField || "node_id";
+        refreshLayerOptions();
+        hasProject = Boolean(qgisProject && (nextProjectPath || rawProjectTitle || layerIds.length > 0));
+        projectName = hasProject ? (rawProjectTitle || "Untitled QField project") : "No project";
+        projectPath = hasProject ? nextProjectPath : "";
+        currentProjectKey = hasProject ? DeepPipe.projectKey(projectPath, projectName) : "";
+        schemaVersion = hasProject ? String(iface.readProjectEntry("DeepPipe", "schema_version", "")) : "";
+
+        var configuredLayerName = hasProject ? String(iface.readProjectEntry("DeepPipe", "inlet_layer", "")) : "";
+        var configuredNodeField = hasProject ? String(iface.readProjectEntry("DeepPipe", "node_id_field", "")) : "";
+        var configuredApiBase = hasProject ? String(iface.readProjectEntry("DeepPipe", "api_base_url", "")) : "";
+        var configuredApiMode = hasProject ? String(iface.readProjectEntry("DeepPipe", "api_mode", "")).toLowerCase() : "";
+        var savedMapping = hasProject
+                ? DeepPipe.projectMapping(appSettings.projectMappingsJson, projectPath, projectName)
+                : null;
+
+        var nextLayerId = "";
+        var nextNodeField = "";
+        mappingSource = "";
+        mappingConfirmed = false;
+
+        if (savedMapping) {
+            nextLayerId = layerById(savedMapping.layer_id) ? String(savedMapping.layer_id) : uniqueLayerIdByName(savedMapping.layer_name);
+            nextNodeField = String(savedMapping.node_id_field || "");
+            mappingSource = "local";
+            mappingConfirmed = Boolean(nextLayerId);
+        }
+        if (!nextLayerId && configuredLayerName) {
+            nextLayerId = uniqueLayerIdByName(configuredLayerName);
+            nextNodeField = configuredNodeField;
+            mappingSource = "project";
+            mappingConfirmed = Boolean(nextLayerId);
+        }
+        if (!nextLayerId) {
+            nextLayerId = suggestedLayerId();
+            nextNodeField = configuredNodeField;
+            mappingSource = nextLayerId ? "suggestion" : "";
+            mappingConfirmed = false;
+        }
+
+        inletLayerId = nextLayerId;
+        inletLayer = layerById(nextLayerId);
+        inletLayerName = inletLayer ? String(inletLayer.name) : "";
+        refreshFieldNames();
+        nodeIdField = DeepPipe.suggestedNodeIdField(fieldNames, nextNodeField);
+        if (!nodeIdField || fieldNames.indexOf(nodeIdField) < 0) mappingConfirmed = false;
+        refreshSetupState();
+
         if (configuredApiBase && configuredApiBase !== appSettings.apiBaseUrl) {
             appSettings.apiBaseUrl = configuredApiBase;
             apiConnectionStatus = "unknown";
@@ -303,10 +433,11 @@ Item {
         appSettings.lastProjectName = projectName;
 
         var shouldReset = Boolean(resetWorkflow) ||
-                previousProjectName !== nextProjectName ||
-                previousLayerName !== configuredLayer;
+                previousProjectKey !== currentProjectKey ||
+                previousLayerId !== inletLayerId;
         if (shouldReset) {
-            clearSelectedInlets();
+            selectedFids = [];
+            selectedPoints = [];
             removePredictionLayer();
             assessmentLatitude = NaN;
             assessmentLongitude = NaN;
@@ -314,27 +445,75 @@ Item {
             assessmentLocationLabel = "No location selected";
             assessmentResult = null;
             assessmentStatus = "idle";
+            restorePendingJob();
         }
-
-        if (projectEnabled && !inletLayer) {
-            projectEnabled = false;
-            predictionMessage = "Configured inlet layer '" + configuredLayer + "' was not found.";
-        }
-        if (shouldReset) restorePendingJob();
     }
 
-    function chooseInletLayer(name) {
-        var nextLayer = layerByName(name);
-        if (!nextLayer) {
-            toast("Layer '" + name + "' could not be loaded.");
+    function chooseInletLayer(layerId) {
+        if (activeJobId || activeRequest) {
+            toast("Wait for or cancel the active Prediction job before changing project setup.");
             return;
         }
-        clearSelectedInlets();
-        inletLayerName = String(name);
+        var nextLayer = layerById(layerId);
+        if (!nextLayer) {
+            toast("The selected point layer could not be loaded.");
+            return;
+        }
+        selectedFids = [];
+        selectedPoints = [];
+        removePredictionLayer();
+        inletLayerId = String(layerId);
+        inletLayerName = String(nextLayer.name);
         inletLayer = nextLayer;
+        refreshFieldNames();
+        nodeIdField = DeepPipe.suggestedNodeIdField(fieldNames, nodeIdField);
+        mappingConfirmed = false;
+        mappingSource = "user";
         predictionStatus = "idle";
         predictionMessage = "";
         predictionSummary = null;
+        refreshSetupState();
+    }
+
+    function chooseNodeIdField(fieldName) {
+        if (activeJobId || activeRequest) {
+            toast("Wait for or cancel the active Prediction job before changing project setup.");
+            return;
+        }
+        selectedFids = [];
+        selectedPoints = [];
+        removePredictionLayer();
+        nodeIdField = String(fieldName || "").trim();
+        mappingConfirmed = false;
+        mappingSource = "user";
+        predictionStatus = "idle";
+        predictionMessage = "";
+        predictionSummary = null;
+        refreshSetupState();
+    }
+
+    function confirmProjectMapping() {
+        refreshFieldNames();
+        if (!hasProject || !inletLayer || !inletLayerId || !nodeIdField || fieldNames.indexOf(nodeIdField) < 0) {
+            mappingConfirmed = false;
+            refreshSetupState();
+            toast(setupMessage);
+            return;
+        }
+        mappingConfirmed = true;
+        mappingSource = "local";
+        appSettings.projectMappingsJson = DeepPipe.updateProjectMapping(
+                    appSettings.projectMappingsJson,
+                    projectPath,
+                    projectName,
+                    {
+                        layer_id: inletLayerId,
+                        layer_name: inletLayerName,
+                        node_id_field: nodeIdField,
+                        confirmed_at: new Date().toISOString()
+                    });
+        refreshSetupState();
+        toast("DeepPipe setup saved for this project on this device.");
     }
 
     function recordFromFeature(feature) {
@@ -412,14 +591,15 @@ Item {
     }
 
     function startInletSelection() {
-        if (!projectEnabled || !inletLayer) {
-            toast("Open a DeepPipe project with a configured inlet layer first.");
+        if (!projectReady || !inletLayer) {
+            toast(setupMessage);
             return;
         }
         syncFromNativeSelection();
         interactionMode = "select_inlets";
+        inletSelectionMode = "tap";
         panelDrawer.close();
-        toast("Tap inlet points to add or remove them.");
+        toast("Tap points, drag a box, or select all visible inlets.");
     }
 
     function finishMapInteraction() {
@@ -432,8 +612,70 @@ Item {
         panelDrawer.open();
     }
 
+    function setInletSelectionMode(mode) {
+        var normalized = String(mode || "tap") === "box" ? "box" : "tap";
+        inletSelectionMode = normalized;
+        toast(normalized === "box"
+              ? "Drag a rectangle around the inlets to add."
+              : "Tap an inlet to add or remove it.");
+    }
+
+    function recordsInScreenRectangle(startPoint, endPoint) {
+        var records = [];
+        if (!inletLayer || !mapCanvas) return records;
+        var left = Math.min(Number(startPoint.x), Number(endPoint.x));
+        var right = Math.max(Number(startPoint.x), Number(endPoint.x));
+        var top = Math.min(Number(startPoint.y), Number(endPoint.y));
+        var bottom = Math.max(Number(startPoint.y), Number(endPoint.y));
+        var topLeft = mapCanvas.mapSettings.screenToCoordinate(Qt.point(left, top));
+        var bottomRight = mapCanvas.mapSettings.screenToCoordinate(Qt.point(right, bottom));
+        var rectangle = GeometryUtils.createRectangleFromPoints(topLeft, bottomRight);
+        var layerRectangle = GeometryUtils.reprojectRectangle(
+                    rectangle,
+                    mapCanvas.mapSettings.destinationCrs,
+                    inletLayer.crs);
+        var iterator = LayerUtils.createFeatureIteratorFromRectangle(inletLayer, layerRectangle);
+        while (iterator && iterator.hasNext()) {
+            var record = recordFromFeature(iterator.next());
+            if (record && Number.isFinite(record.fid)) records.push(record);
+        }
+        if (iterator && typeof iterator.close === "function") iterator.close();
+        return records;
+    }
+
+    function addInletsInScreenRectangle(startPoint, endPoint, actionLabel) {
+        if (!projectReady || !inletLayer) {
+            toast(setupMessage);
+            return 0;
+        }
+        var incoming = recordsInScreenRectangle(startPoint, endPoint);
+        var merged = DeepPipe.mergePointRecords(selectedPoints, incoming);
+        selectedPoints = merged.records;
+        selectedFids = merged.records.map(function (record) { return Number(record.fid); });
+        updateNativeSelection();
+        predictionSummary = null;
+        var label = String(actionLabel || "Box selection");
+        if (incoming.length === 0) {
+            toast(label + " found no inlets.");
+        } else if (merged.added === 0) {
+            toast("All " + incoming.length + " inlets in that area were already selected.");
+        } else {
+            toast("Added " + merged.added + " inlet" + (merged.added === 1 ? "" : "s") + ".");
+        }
+        return merged.added;
+    }
+
+    function selectVisibleInlets() {
+        if (!mapCanvas) return;
+        addInletsInScreenRectangle(
+                    Qt.point(0, 0),
+                    Qt.point(Number(mapCanvas.width), Number(mapCanvas.height)),
+                    "Visible-area selection");
+    }
+
     function handleInletMapTap(screenPoint) {
         if (!inletLayer || !mapCanvas) return true;
+        if (inletSelectionMode !== "tap") return true;
         var now = Date.now();
         if (now - lastMapTapMs < 220) return true;
         lastMapTapMs = now;
@@ -447,9 +689,21 @@ Item {
                     mapCanvas.mapSettings.destinationCrs,
                     inletLayer.crs);
         var iterator = LayerUtils.createFeatureIteratorFromRectangle(inletLayer, layerRectangle);
+        var tapLayerPoint = GeometryUtils.reprojectPoint(
+                    mapCanvas.mapSettings.screenToCoordinate(Qt.point(screenPoint.x, screenPoint.y)),
+                    mapCanvas.mapSettings.destinationCrs,
+                    inletLayer.crs);
         var feature = null;
-        if (iterator && iterator.hasNext()) {
-            feature = iterator.next();
+        var shortestDistance = Number.POSITIVE_INFINITY;
+        while (iterator && iterator.hasNext()) {
+            var candidate = iterator.next();
+            if (!candidate || !candidate.geometry) continue;
+            var candidatePoint = GeometryUtils.centroid(candidate.geometry);
+            var distance = GeometryUtils.distanceBetweenPoints(tapLayerPoint, candidatePoint);
+            if (distance < shortestDistance) {
+                shortestDistance = distance;
+                feature = candidate;
+            }
         }
         if (iterator && typeof iterator.close === "function") {
             iterator.close();
@@ -464,8 +718,8 @@ Item {
     }
 
     function startAssessmentLocationSelection() {
-        if (!projectEnabled) {
-            toast("Open a DeepPipe project first.");
+        if (!assessmentReady) {
+            toast("Open a QField project first.");
             return;
         }
         interactionMode = "assessment_location";
@@ -586,6 +840,7 @@ Item {
             }
 
             activeJobId = jobId;
+            activeJobProjectKey = currentProjectKey;
             activeJobProjectName = projectName;
             activeJobSelectedCount = selectedCount;
             activeJobThreshold = submittedThreshold;
@@ -601,7 +856,8 @@ Item {
 
     function pollActiveJob() {
         if (!activeJobId || activeRequest) return;
-        if (activeJobProjectName && activeJobProjectName !== projectName) {
+        if ((activeJobProjectKey && activeJobProjectKey !== currentProjectKey) ||
+                (!activeJobProjectKey && activeJobProjectName && activeJobProjectName !== projectName)) {
             predictionStatus = "queued";
             predictionMessage = "Saved job " + activeJobId + " belongs to project '" + activeJobProjectName + "'.";
             return;
@@ -733,6 +989,12 @@ Item {
     }
 
     function startPrediction() {
+        if (!projectReady) {
+            predictionStatus = "failed";
+            predictionMessage = setupMessage;
+            toast(setupMessage);
+            return;
+        }
         if (appSettings.useLiveApi) startLivePrediction();
         else startMockPrediction();
     }
@@ -876,11 +1138,19 @@ Item {
 
         DeepPipePanel {
             anchors.fill: parent
-            projectEnabled: plugin.projectEnabled
+            hasProject: plugin.hasProject
+            projectReady: plugin.projectReady
+            assessmentReady: plugin.assessmentReady
             projectName: plugin.projectName
+            setupState: plugin.setupState
+            setupMessage: plugin.setupMessage
             layerNames: plugin.layerNames
+            layerIds: plugin.layerIds
+            inletLayerId: plugin.inletLayerId
             inletLayerName: plugin.inletLayerName
+            fieldNames: plugin.fieldNames
             nodeIdField: plugin.nodeIdField
+            mappingConfirmed: plugin.mappingConfirmed
             selectedCount: plugin.selectedPoints.length
             inletSelectionActive: plugin.interactionMode === "select_inlets"
             predictionStatus: plugin.predictionStatus
@@ -901,8 +1171,9 @@ Item {
 
             onCloseRequested: panelDrawer.close()
             onRefreshProjectRequested: plugin.loadProjectConfiguration(false)
-            onInletLayerRequested: function (layerName) { plugin.chooseInletLayer(layerName); }
-            onNodeIdFieldRequested: function (fieldName) { plugin.nodeIdField = fieldName || "node_id"; plugin.clearSelectedInlets(); }
+            onInletLayerRequested: function (layerId) { plugin.chooseInletLayer(layerId); }
+            onNodeIdFieldRequested: function (fieldName) { plugin.chooseNodeIdField(fieldName); }
+            onConfirmProjectMappingRequested: plugin.confirmProjectMapping()
             onSelectInletsRequested: plugin.startInletSelection()
             onFinishSelectionRequested: plugin.finishMapInteraction()
             onClearSelectionRequested: plugin.clearSelectedInlets()
@@ -925,13 +1196,65 @@ Item {
         }
     }
 
+    Item {
+        id: boxSelectionOverlay
+        parent: mapCanvas ? mapCanvas : plugin
+        anchors.fill: parent
+        visible: interactionMode === "select_inlets" && inletSelectionMode === "box"
+        enabled: visible
+        z: 9999
+
+        MouseArea {
+            id: boxDragArea
+            anchors.fill: parent
+            preventStealing: true
+            property point dragStart: Qt.point(0, 0)
+            property point dragCurrent: Qt.point(0, 0)
+            property bool dragging: false
+
+            onPressed: function (mouse) {
+                dragStart = Qt.point(mouse.x, mouse.y);
+                dragCurrent = dragStart;
+                dragging = true;
+            }
+            onPositionChanged: function (mouse) {
+                if (dragging) dragCurrent = Qt.point(mouse.x, mouse.y);
+            }
+            onCanceled: dragging = false
+            onReleased: function (mouse) {
+                if (!dragging) return;
+                dragCurrent = Qt.point(mouse.x, mouse.y);
+                var width = Math.abs(dragCurrent.x - dragStart.x);
+                var height = Math.abs(dragCurrent.y - dragStart.y);
+                dragging = false;
+                if (width < 10 || height < 10) {
+                    toast("Drag a larger rectangle, or switch to Tap mode for one inlet.");
+                    return;
+                }
+                addInletsInScreenRectangle(dragStart, dragCurrent, "Box selection");
+            }
+        }
+
+        Rectangle {
+            visible: boxDragArea.dragging
+            x: Math.min(boxDragArea.dragStart.x, boxDragArea.dragCurrent.x)
+            y: Math.min(boxDragArea.dragStart.y, boxDragArea.dragCurrent.y)
+            width: Math.abs(boxDragArea.dragCurrent.x - boxDragArea.dragStart.x)
+            height: Math.abs(boxDragArea.dragCurrent.y - boxDragArea.dragStart.y)
+            color: "#33087565"
+            border.color: "#087565"
+            border.width: 2
+            radius: 3
+        }
+    }
+
     Rectangle {
         id: inletSelectionBar
         parent: mainWindow ? mainWindow.contentItem : plugin
         visible: interactionMode === "select_inlets"
         z: 10000
-        height: 78
-        width: parent ? Math.min(parent.width - 20, 560) : 360
+        height: 138
+        width: parent ? Math.min(parent.width - 20, 640) : 360
         x: parent ? (parent.width - width) / 2 : 10
         y: parent ? parent.height - height - 14 : 620
         radius: 18
@@ -939,43 +1262,66 @@ Item {
         border.color: "#96C9B9"
         border.width: 1
 
-        RowLayout {
+        ColumnLayout {
             anchors.fill: parent
             anchors.margins: 10
             spacing: 8
 
-            ColumnLayout {
+            RowLayout {
                 Layout.fillWidth: true
-                spacing: 1
                 Text {
+                    Layout.fillWidth: true
                     text: selectedPoints.length + " inlet" + (selectedPoints.length === 1 ? "" : "s") + " selected"
                     color: "#17332E"
                     font.pixelSize: 16
                     font.bold: true
                 }
-                Text {
-                    text: "Tap points to add or remove"
-                    color: "#61736F"
-                    font.pixelSize: 12
+                Button {
+                    Layout.preferredWidth: 82
+                    Layout.preferredHeight: 46
+                    text: "Done"
+                    font.bold: true
+                    palette.button: "#087565"
+                    palette.buttonText: "white"
+                    onClicked: finishMapInteraction()
                 }
             }
 
-            Button {
-                Layout.preferredWidth: 74
-                Layout.preferredHeight: 52
-                text: "Clear"
-                enabled: selectedPoints.length > 0
-                flat: true
-                onClicked: clearSelectedInlets()
-            }
-            Button {
-                Layout.preferredWidth: 82
-                Layout.preferredHeight: 52
-                text: "Done"
-                font.bold: true
-                palette.button: "#087565"
-                palette.buttonText: "white"
-                onClicked: finishMapInteraction()
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 5
+                Button {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 48
+                    text: "Tap"
+                    checkable: true
+                    checked: inletSelectionMode === "tap"
+                    Accessible.name: "Select individual inlets"
+                    onClicked: setInletSelectionMode("tap")
+                }
+                Button {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 48
+                    text: "Box"
+                    checkable: true
+                    checked: inletSelectionMode === "box"
+                    Accessible.name: "Select inlets by dragging a rectangle"
+                    onClicked: setInletSelectionMode("box")
+                }
+                Button {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 48
+                    text: "Visible"
+                    Accessible.name: "Select all visible inlets"
+                    onClicked: selectVisibleInlets()
+                }
+                Button {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 48
+                    text: "Clear"
+                    enabled: selectedPoints.length > 0
+                    onClicked: clearSelectedInlets()
+                }
             }
         }
     }
@@ -1017,16 +1363,20 @@ Item {
     Component.onCompleted: {
         if (!appSettings.apiBaseUrl) appSettings.apiBaseUrl = defaultApiBaseUrl;
         iface.addItemToPluginsToolbar(pluginButton);
-        pointHandler.registerHandler("deeppipe_mobile_interactions", function (point, type, interactionType) {
-            if (interactionType !== "clicked") return false;
-            if (plugin.interactionMode === "select_inlets") {
-                return plugin.handleInletMapTap(point);
-            }
-            if (plugin.interactionMode === "assessment_location") {
-                return plugin.handleAssessmentMapTap(point);
-            }
-            return false;
-        }, MapCanvasPointHandler.Priority.High);
+        if (pointHandler) {
+            pointHandler.registerHandler("deeppipe_mobile_interactions", function (point, type, interactionType) {
+                if (interactionType !== "clicked") return false;
+                if (plugin.interactionMode === "select_inlets") {
+                    return plugin.handleInletMapTap(point);
+                }
+                if (plugin.interactionMode === "assessment_location") {
+                    return plugin.handleAssessmentMapTap(point);
+                }
+                return false;
+            }, MapCanvasPointHandler.Priority.High);
+        } else {
+            iface.logMessage("DeepPipe Mobile could not find QField's map point handler.");
+        }
         loadProjectConfiguration(true);
     }
 
@@ -1034,7 +1384,7 @@ Item {
         mockPredictionTimer.stop();
         jobPollTimer.stop();
         abandonActiveRequest();
-        pointHandler.deregisterHandler("deeppipe_mobile_interactions");
+        if (pointHandler) pointHandler.deregisterHandler("deeppipe_mobile_interactions");
         removePredictionLayer();
     }
 }

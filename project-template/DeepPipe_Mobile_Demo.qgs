@@ -150,21 +150,23 @@
       </geometryOptions>
       <fieldConfiguration>
         <field name="node_id" configurationFlags="None"><editWidget type="TextEdit"><config><Option/></config></editWidget></field>
+        <field name="inlet_uuid" configurationFlags="None"><editWidget type="TextEdit"><config><Option/></config></editWidget></field>
         <field name="captured_at" configurationFlags="None"><editWidget type="DateTime"><config><Option/></config></editWidget></field>
         <field name="status" configurationFlags="None"><editWidget type="ValueMap"><config><Option type="Map"><Option name="map" type="List"><Option type="Map"><Option name="surveyed" type="QString" value="surveyed"/></Option><Option type="Map"><Option name="needs review" type="QString" value="needs_review"/></Option></Option></Option></config></editWidget></field>
         <field name="source" configurationFlags="None"><editWidget type="TextEdit"><config><Option/></config></editWidget></field>
       </fieldConfiguration>
-      <aliases><alias field="node_id" name="Inlet ID" index="0"/><alias field="captured_at" name="Captured at" index="1"/><alias field="status" name="Survey status" index="2"/><alias field="source" name="Source" index="3"/></aliases>
-      <splitPolicies><policy field="node_id" policy="Duplicate"/><policy field="captured_at" policy="Duplicate"/><policy field="status" policy="Duplicate"/><policy field="source" policy="Duplicate"/></splitPolicies>
-      <duplicatePolicies><policy field="node_id" policy="Duplicate"/><policy field="captured_at" policy="Duplicate"/><policy field="status" policy="Duplicate"/><policy field="source" policy="Duplicate"/></duplicatePolicies>
-      <defaults><default field="node_id" expression="" applyOnUpdate="0"/><default field="captured_at" expression="now()" applyOnUpdate="0"/><default field="status" expression="'surveyed'" applyOnUpdate="0"/><default field="source" expression="'qfield'" applyOnUpdate="0"/></defaults>
-      <constraints><constraint field="node_id" constraints="3" unique_strength="1" notnull_strength="1" exp_strength="0"/><constraint field="captured_at" constraints="0" unique_strength="0" notnull_strength="0" exp_strength="0"/><constraint field="status" constraints="0" unique_strength="0" notnull_strength="0" exp_strength="0"/><constraint field="source" constraints="0" unique_strength="0" notnull_strength="0" exp_strength="0"/></constraints>
-      <constraintExpressions><constraint field="node_id" exp="" desc=""/><constraint field="captured_at" exp="" desc=""/><constraint field="status" exp="" desc=""/><constraint field="source" exp="" desc=""/></constraintExpressions>
+      <aliases><alias field="node_id" name="Display ID" index="0"/><alias field="inlet_uuid" name="Inlet UUID" index="1"/><alias field="captured_at" name="Captured at" index="2"/><alias field="status" name="Survey status" index="3"/><alias field="source" name="Source" index="4"/></aliases>
+      <splitPolicies><policy field="node_id" policy="Duplicate"/><policy field="inlet_uuid" policy="DefaultValue"/><policy field="captured_at" policy="Duplicate"/><policy field="status" policy="Duplicate"/><policy field="source" policy="Duplicate"/></splitPolicies>
+      <duplicatePolicies><policy field="node_id" policy="Duplicate"/><policy field="inlet_uuid" policy="DefaultValue"/><policy field="captured_at" policy="Duplicate"/><policy field="status" policy="Duplicate"/><policy field="source" policy="Duplicate"/></duplicatePolicies>
+      <defaults><default field="node_id" expression="" applyOnUpdate="0"/><default field="inlet_uuid" expression="uuid('WithoutBraces')" applyOnUpdate="0"/><default field="captured_at" expression="now()" applyOnUpdate="0"/><default field="status" expression="'surveyed'" applyOnUpdate="0"/><default field="source" expression="'qfield'" applyOnUpdate="0"/></defaults>
+      <constraints><constraint field="node_id" constraints="0" unique_strength="0" notnull_strength="0" exp_strength="0"/><constraint field="inlet_uuid" constraints="3" unique_strength="1" notnull_strength="1" exp_strength="0"/><constraint field="captured_at" constraints="0" unique_strength="0" notnull_strength="0" exp_strength="0"/><constraint field="status" constraints="0" unique_strength="0" notnull_strength="0" exp_strength="0"/><constraint field="source" constraints="0" unique_strength="0" notnull_strength="0" exp_strength="0"/></constraints>
+      <constraintExpressions><constraint field="node_id" exp="" desc=""/><constraint field="inlet_uuid" exp="" desc=""/><constraint field="captured_at" exp="" desc=""/><constraint field="status" exp="" desc=""/><constraint field="source" exp="" desc=""/></constraintExpressions>
       <expressionfields/>
       <attributeactions><defaultAction value="{00000000-0000-0000-0000-000000000000}" key="Canvas"/></attributeactions>
       <attributetableconfig actionWidgetStyle="dropDown" sortExpression="&quot;node_id&quot;" sortOrder="0">
         <columns>
           <column type="field" name="node_id" hidden="0" width="120"/>
+          <column type="field" name="inlet_uuid" hidden="1" width="240"/>
           <column type="field" name="captured_at" hidden="0" width="180"/>
           <column type="field" name="status" hidden="0" width="120"/>
           <column type="field" name="source" hidden="0" width="120"/>
@@ -180,9 +182,9 @@
       <editforminitcode><![CDATA[]]></editforminitcode>
       <featformsuppress>0</featformsuppress>
       <editorlayout>generatedlayout</editorlayout>
-      <editable><field name="node_id" editable="1"/><field name="captured_at" editable="1"/><field name="status" editable="1"/><field name="source" editable="0"/></editable>
-      <labelOnTop><field name="node_id" labelOnTop="0"/><field name="captured_at" labelOnTop="0"/><field name="status" labelOnTop="0"/><field name="source" labelOnTop="0"/></labelOnTop>
-      <reuseLastValue><field name="node_id" reuseLastValue="0"/><field name="captured_at" reuseLastValue="0"/><field name="status" reuseLastValue="1"/><field name="source" reuseLastValue="1"/></reuseLastValue>
+      <editable><field name="node_id" editable="1"/><field name="inlet_uuid" editable="0"/><field name="captured_at" editable="1"/><field name="status" editable="1"/><field name="source" editable="0"/></editable>
+      <labelOnTop><field name="node_id" labelOnTop="0"/><field name="inlet_uuid" labelOnTop="0"/><field name="captured_at" labelOnTop="0"/><field name="status" labelOnTop="0"/><field name="source" labelOnTop="0"/></labelOnTop>
+      <reuseLastValue><field name="node_id" reuseLastValue="0"/><field name="inlet_uuid" reuseLastValue="0"/><field name="captured_at" reuseLastValue="0"/><field name="status" reuseLastValue="1"/><field name="source" reuseLastValue="1"/></reuseLastValue>
       <dataDefinedFieldProperties/>
       <widgets/>
       <previewExpression>"node_id"</previewExpression>
@@ -195,7 +197,7 @@
       <enabled type="bool">true</enabled>
       <schema_version type="QString">1.0</schema_version>
       <inlet_layer type="QString">Inlets</inlet_layer>
-      <node_id_field type="QString">node_id</node_id_field>
+      <node_id_field type="QString">inlet_uuid</node_id_field>
       <prediction_result_layer type="QString">DeepPipe Predicted Pipes</prediction_result_layer>
       <assessment_layer type="QString">DeepPipe Assessments</assessment_layer>
       <api_base_url type="QString">https://lab.yyworkshop.com/predapi</api_base_url>

@@ -43,6 +43,45 @@ assert.equal(normalized.max_search_radius, 1500);
 assert.equal(normalized.classification_threshold, 0.51);
 assert.ok(Math.abs(normalized.prob_weight + normalized.elev_weight + normalized.length_weight - 1) < 1e-9);
 
+assert.equal(
+  context.suggestedNodeIdField(["name", "node_id", "inlet_uuid"], ""),
+  "inlet_uuid",
+);
+assert.equal(
+  context.suggestedNodeIdField(["name", "node_id", "inlet_uuid"], "node_id"),
+  "node_id",
+);
+assert.equal(context.projectKey("/projects/a.qgs", "Same title"), "path:/projects/a.qgs");
+assert.equal(context.projectKey("", "Same title"), "title:Same title");
+const mappingJson = context.updateProjectMapping("{}", "/projects/a.qgs", "Same title", {
+  layer_id: "layer-a",
+  layer_name: "Inlets",
+  node_id_field: "inlet_uuid",
+  confirmed_at: "2026-07-31T18:00:00.000Z",
+});
+assert.equal(
+  context.projectMapping(mappingJson, "/projects/a.qgs", "Same title").node_id_field,
+  "inlet_uuid",
+);
+assert.equal(
+  context.projectMapping(mappingJson, "/projects/moved.qgs", "Same title").layer_id,
+  "layer-a",
+);
+assert.equal(context.projectMapping("not json", "/projects/a.qgs", "Same title"), null);
+
+const bulkRecords = Array.from({ length: 500 }, (_, index) => ({
+  fid: index + 1,
+  nodeId: `uuid-${index + 1}`,
+  x: index,
+  y: index,
+}));
+const firstBulkMerge = context.mergePointRecords(bulkRecords.slice(0, 20), bulkRecords);
+assert.equal(firstBulkMerge.records.length, 500);
+assert.equal(firstBulkMerge.added, 480);
+const secondBulkMerge = context.mergePointRecords(firstBulkMerge.records, bulkRecords);
+assert.equal(secondBulkMerge.records.length, 500);
+assert.equal(secondBulkMerge.added, 0);
+
 assert.equal(context.validateSelectedPoints(points).ok, true);
 assert.equal(context.validateSelectedPoints(points.slice(0, 2)).errors[0].code, "TOO_FEW_INLETS");
 const duplicateId = points.map((point) => ({ ...point }));

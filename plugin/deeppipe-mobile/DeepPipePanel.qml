@@ -5,11 +5,19 @@ import QtQuick.Layouts
 Item {
     id: panel
 
-    property bool projectEnabled: false
+    property bool hasProject: false
+    property bool projectReady: false
+    property bool assessmentReady: false
     property string projectName: "No project"
+    property string setupState: "no_project"
+    property string setupMessage: "Open a QField project to begin."
     property var layerNames: []
+    property var layerIds: []
+    property string inletLayerId: ""
     property string inletLayerName: ""
-    property string nodeIdField: "node_id"
+    property var fieldNames: []
+    property string nodeIdField: ""
+    property bool mappingConfirmed: false
     property int selectedCount: 0
     property bool inletSelectionActive: false
     property string predictionStatus: "idle"
@@ -26,12 +34,13 @@ Item {
     property string apiConnectionStatus: "unknown"
     property string apiConnectionMessage: "Not checked"
     property string activeJobId: ""
-    property string pluginVersion: "0.2.0"
+    property string pluginVersion: "0.3.0"
 
     signal closeRequested()
     signal refreshProjectRequested()
-    signal inletLayerRequested(string layerName)
+    signal inletLayerRequested(string layerId)
     signal nodeIdFieldRequested(string fieldName)
+    signal confirmProjectMappingRequested()
     signal selectInletsRequested()
     signal finishSelectionRequested()
     signal clearSelectionRequested()
@@ -86,6 +95,14 @@ Item {
         if (apiConnectionStatus === "failed") return danger;
         if (apiConnectionStatus === "checking") return warning;
         return mutedInk;
+    }
+
+    function setupStatusTitle() {
+        if (projectReady) return "DeepPipe project ready";
+        if (setupState === "no_project") return "No project open";
+        if (setupState === "no_point_layers") return "Inlet point layer required";
+        if (setupState === "invalid_field") return "Project setup needs attention";
+        return "Finish project setup";
     }
 
     Rectangle {
@@ -217,8 +234,8 @@ Item {
                             Layout.rightMargin: 14
                             Layout.preferredHeight: projectStatusColumn.implicitHeight + 28
                             radius: 14
-                            color: panel.projectEnabled ? "#E4F3ED" : "#FFF0ED"
-                            border.color: panel.projectEnabled ? "#B7DBCD" : "#EDC2BB"
+                            color: panel.projectReady ? "#E4F3ED" : "#FFF6E6"
+                            border.color: panel.projectReady ? "#B7DBCD" : "#E7C98C"
 
                             ColumnLayout {
                                 id: projectStatusColumn
@@ -232,23 +249,24 @@ Item {
                                     Layout.fillWidth: true
                                     Text {
                                         Layout.fillWidth: true
-                                        text: panel.projectEnabled ? "DeepPipe project detected" : "Project setup required"
-                                        color: panel.projectEnabled ? panel.success : panel.danger
+                                        text: panel.setupStatusTitle()
+                                        color: panel.projectReady ? panel.success : panel.warning
                                         font.pixelSize: 15
                                         font.bold: true
                                     }
                                     Button {
-                                        text: "Refresh"
+                                        text: panel.projectReady ? "Refresh" : "Setup"
                                         flat: true
                                         implicitHeight: 44
-                                        onClicked: panel.refreshProjectRequested()
+                                        onClicked: {
+                                            if (panel.projectReady) panel.refreshProjectRequested();
+                                            else tabBar.currentIndex = 2;
+                                        }
                                     }
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: panel.projectEnabled
-                                          ? "The inlet layer and field mapping are loaded from this QField project."
-                                          : "Open a DeepPipe-compatible project or configure the required project properties."
+                                    text: panel.setupMessage
                                     color: panel.mutedInk
                                     font.pixelSize: 13
                                     wrapMode: Text.WordWrap
@@ -289,14 +307,15 @@ Item {
                                 ComboBox {
                                     Layout.fillWidth: true
                                     implicitHeight: 50
-                                    enabled: panel.projectEnabled && panel.layerNames.length > 0 && !panel.predictionBusy()
+                                    enabled: panel.hasProject && panel.layerNames.length > 0 && !panel.predictionBusy()
                                     model: panel.layerNames
-                                    currentIndex: Math.max(0, panel.layerNames.indexOf(panel.inletLayerName))
+                                    currentIndex: panel.layerIds.indexOf(panel.inletLayerId)
                                     Accessible.name: "Inlet layer"
-                                    onActivated: panel.inletLayerRequested(currentText)
+                                    onActivated: panel.inletLayerRequested(panel.layerIds[currentIndex])
                                 }
                                 Text {
-                                    text: "Node ID field: " + (panel.nodeIdField || "Not configured")
+                                    text: "ID field: " + (panel.nodeIdField || "Not configured") +
+                                          (panel.nodeIdField.toLowerCase().indexOf("uuid") >= 0 ? " · UUID" : "")
                                     color: panel.mutedInk
                                     font.pixelSize: 12
                                 }
@@ -348,8 +367,8 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     text: panel.inletSelectionActive
-                                          ? "Selection mode is active. Tap inlet points to add or remove them, then tap Done on the map."
-                                          : "Tap only the inlet points that define the prediction area. A minimum of three is required."
+                                          ? "Selection mode is active. Use Tap, Box, or Visible on the map, then press Done."
+                                          : "Select individual inlets, drag a box around many points, or add every inlet currently visible. A minimum of three is required."
                                     color: panel.mutedInk
                                     font.pixelSize: 13
                                     wrapMode: Text.WordWrap
@@ -358,7 +377,7 @@ Item {
                                     Layout.fillWidth: true
                                     implicitHeight: 54
                                     text: panel.inletSelectionActive ? "Return to map selection" : "Select inlets on map"
-                                    enabled: panel.projectEnabled && panel.inletLayerName.length > 0 && !panel.predictionBusy()
+                                    enabled: panel.projectReady && panel.inletLayerName.length > 0 && !panel.predictionBusy()
                                     font.bold: true
                                     palette.button: panel.primary
                                     palette.buttonText: "white"
@@ -471,7 +490,7 @@ Item {
                                     text: panel.selectedCount > 0
                                           ? (panel.mockMode ? "Preview pipes from " : "Predict pipes from ") + panel.selectedCount + " inlets"
                                           : "Select inlets to continue"
-                                    enabled: panel.projectEnabled && panel.selectedCount >= 3 && !panel.predictionBusy()
+                                    enabled: panel.projectReady && panel.selectedCount >= 3 && !panel.predictionBusy()
                                     font.bold: true
                                     palette.button: panel.primary
                                     palette.buttonText: "white"
@@ -671,7 +690,7 @@ Item {
                                     Layout.fillWidth: true
                                     implicitHeight: 54
                                     text: "Pick a point on the map"
-                                    enabled: panel.projectEnabled
+                                    enabled: panel.assessmentReady
                                     font.bold: true
                                     palette.button: panel.primary
                                     palette.buttonText: "white"
@@ -681,7 +700,7 @@ Item {
                                     Layout.fillWidth: true
                                     implicitHeight: 50
                                     text: "Use current GNSS location"
-                                    enabled: panel.projectEnabled
+                                    enabled: panel.assessmentReady
                                     onClicked: panel.useGnssRequested()
                                 }
                             }
@@ -720,7 +739,7 @@ Item {
                                     Layout.fillWidth: true
                                     implicitHeight: 56
                                     text: "Run service-life assessment"
-                                    enabled: panel.projectEnabled && panel.assessmentLocationLabel !== "No location selected"
+                                    enabled: panel.assessmentReady && panel.assessmentLocationLabel !== "No location selected"
                                     font.bold: true
                                     palette.button: panel.primary
                                     palette.buttonText: "white"
@@ -848,29 +867,68 @@ Item {
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: "App-wide plugin behavior is controlled by the active project's DeepPipe properties. This keeps one plugin reusable across cities while allowing each project to map its own layers and fields."
+                                    text: "Choose the inlet point layer and its stable ID field. The mapping is saved for this project on this device; optional DeepPipe project properties can still prefill it for a team."
                                     color: panel.mutedInk
                                     font.pixelSize: 13
                                     wrapMode: Text.WordWrap
+                                }
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: setupHint.implicitHeight + 20
+                                    radius: 10
+                                    color: panel.projectReady ? "#E4F3ED" : "#FFF6E6"
+                                    border.color: panel.projectReady ? "#B7DBCD" : "#E7C98C"
+                                    Text {
+                                        id: setupHint
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.top: parent.top
+                                        anchors.margins: 10
+                                        text: panel.setupMessage
+                                        color: panel.projectReady ? panel.success : panel.warning
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WordWrap
+                                    }
                                 }
                                 Text { text: "Inlet layer"; color: panel.mutedInk; font.pixelSize: 12 }
                                 ComboBox {
                                     Layout.fillWidth: true
                                     implicitHeight: 50
-                                    enabled: panel.projectEnabled && panel.layerNames.length > 0
+                                    enabled: panel.hasProject && panel.layerNames.length > 0 && !panel.predictionBusy()
                                     model: panel.layerNames
-                                    currentIndex: Math.max(0, panel.layerNames.indexOf(panel.inletLayerName))
-                                    onActivated: panel.inletLayerRequested(currentText)
+                                    currentIndex: panel.layerIds.indexOf(panel.inletLayerId)
+                                    displayText: currentIndex >= 0 ? currentText : "Choose a point layer"
+                                    onActivated: panel.inletLayerRequested(panel.layerIds[currentIndex])
                                 }
-                                Text { text: "Node ID field"; color: panel.mutedInk; font.pixelSize: 12 }
-                                TextField {
-                                    id: nodeField
+                                Text { text: "Unique inlet ID field"; color: panel.mutedInk; font.pixelSize: 12 }
+                                ComboBox {
                                     Layout.fillWidth: true
                                     implicitHeight: 50
-                                    text: panel.nodeIdField
-                                    placeholderText: "node_id"
-                                    enabled: !panel.predictionBusy()
-                                    onEditingFinished: panel.nodeIdFieldRequested(text.trim())
+                                    enabled: panel.inletLayerId.length > 0 && panel.fieldNames.length > 0 && !panel.predictionBusy()
+                                    model: panel.fieldNames
+                                    currentIndex: panel.fieldNames.indexOf(panel.nodeIdField)
+                                    displayText: currentIndex >= 0 ? currentText : "Choose an ID field"
+                                    onActivated: panel.nodeIdFieldRequested(currentText)
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "For multiple users and offline collection, use a text UUID field with the QGIS default expression uuid('WithoutBraces'). The value must be generated once when the inlet is created and remain unchanged."
+                                    color: panel.mutedInk
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
+                                }
+                                Button {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 54
+                                    text: panel.projectReady ? "Project setup saved" : "Use this project setup"
+                                    enabled: panel.hasProject && panel.inletLayerId.length > 0 &&
+                                             panel.nodeIdField.length > 0 &&
+                                             panel.fieldNames.indexOf(panel.nodeIdField) >= 0 &&
+                                             !panel.predictionBusy()
+                                    font.bold: true
+                                    palette.button: panel.primary
+                                    palette.buttonText: "white"
+                                    onClicked: panel.confirmProjectMappingRequested()
                                 }
                             }
                         }
@@ -991,7 +1049,7 @@ Item {
                                 anchors.fill: parent
                                 anchors.margins: 14
                                 Text { text: "DeepPipe Mobile " + panel.pluginVersion; color: panel.ink; font.pixelSize: 14; font.bold: true }
-                                Text { Layout.fillWidth: true; text: "Touch-first inlet selection · resumable Prediction jobs · mock Assessment"; color: panel.mutedInk; font.pixelSize: 12; wrapMode: Text.WordWrap }
+                                Text { Layout.fillWidth: true; text: "Tap, box, and visible-area inlet selection · resumable Prediction jobs · mock Assessment"; color: panel.mutedInk; font.pixelSize: 12; wrapMode: Text.WordWrap }
                             }
                         }
 
@@ -1000,5 +1058,13 @@ Item {
                 }
             }
         }
+    }
+
+    Component.onCompleted: {
+        if (!panel.projectReady) tabBar.currentIndex = 2;
+    }
+
+    onSetupStateChanged: {
+        if (panel.setupState !== "ready") tabBar.currentIndex = 2;
     }
 }

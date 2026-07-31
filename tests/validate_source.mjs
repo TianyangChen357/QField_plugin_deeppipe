@@ -12,7 +12,7 @@ for (const required of ["main.qml", "metadata.txt", "icon.svg", "DeepPipePanel.q
 }
 
 const metadata = fs.readFileSync(path.join(pluginRoot, "metadata.txt"), "utf8");
-for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.2.0", "icon=icon.svg"]) {
+for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.3.0", "icon=icon.svg"]) {
   assert.equal(metadata.includes(expected), true, `metadata.txt lacks ${expected}`);
 }
 
@@ -23,18 +23,31 @@ for (const expected of [
   "LayerUtils.createFeatureIteratorFromRectangle",
   "LayerUtils.memoryLayerFromJsonString",
   "ProjectUtils.addMapLayer",
-  "readProjectBoolEntry",
   "iface.createHttpRequest",
+  "iface.findItemByObjectName(\"pointHandler\")",
   "CoordinateReferenceSystemUtils.wgs84Crs",
   "GeometryUtils.reprojectRectangle",
+  "projectMappingsJson",
+  "qgisProject.fileName",
+  "addInletsInScreenRectangle",
+  "selectVisibleInlets",
   "/api/pred/pred_deep",
   "/api/jobs/jobs/",
 ]) {
   assert.equal(main.includes(expected), true, `main.qml lacks ${expected}`);
 }
+assert.equal(main.includes("readProjectBoolEntry"), false, "main.qml still hard-gates projects on DeepPipe/enabled");
+assert.equal(main.includes("Project setup required"), false, "main.qml retains the old non-actionable setup error");
 
 const panel = fs.readFileSync(path.join(pluginRoot, "DeepPipePanel.qml"), "utf8");
-for (const expected of ["PRED LIVE", "Test API connection", "Cancel active prediction", "Assessment remains mock"]) {
+for (const expected of [
+  "PRED LIVE",
+  "Use this project setup",
+  "uuid('WithoutBraces')",
+  "Test API connection",
+  "Cancel active prediction",
+  "Assessment remains mock",
+]) {
   assert.equal(panel.includes(expected), true, `DeepPipePanel.qml lacks ${expected}`);
 }
 
@@ -108,6 +121,10 @@ assert.ok(Array.isArray(demoInlets.features) && demoInlets.features.length >= 3)
 for (const feature of demoInlets.features) {
   assert.equal(feature.geometry?.type, "Point");
   assert.ok(String(feature.properties?.node_id || "").trim());
+  assert.match(String(feature.properties?.inlet_uuid || ""), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 }
+assert.equal(new Set(demoInlets.features.map((feature) => feature.properties.inlet_uuid)).size, demoInlets.features.length);
+assert.ok(demoProject.includes("<node_id_field type=\"QString\">inlet_uuid</node_id_field>"));
+assert.ok(demoProject.includes("uuid('WithoutBraces')"));
 
 console.log("DeepPipe QField source and demo-project structure checks passed.");
