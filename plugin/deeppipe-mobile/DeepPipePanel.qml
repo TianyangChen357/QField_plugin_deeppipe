@@ -24,17 +24,29 @@ Item {
     property string predictionMessage: ""
     property var predictionSummary: null
     property string predictionResultLayer: ""
+    property string predictionExportPath: ""
     property real maxSearchRadius: 500
     property real confidenceThreshold: 0.85
     property string assessmentLocationLabel: "No location selected"
     property string assessmentStatus: "idle"
+    property string assessmentMessage: "Choose a map or GNSS location."
     property var assessmentResult: null
+    property real assessmentNominalDiameter: 16
+    property int assessmentGauge: 16
+    property string assessmentMaterialId: "rcp"
+    property int assessmentMinimumYears: 0
     property bool mockMode: true
     property string apiBaseUrl: ""
     property string apiConnectionStatus: "unknown"
     property string apiConnectionMessage: "Not checked"
+    property string passApiBaseUrl: ""
+    property string remoteCogUrl: ""
+    property string remoteCogLayerName: "DeepPipe Remote COG"
+    property string rasterStatus: "idle"
+    property string rasterMessage: "No PyPASS or COG raster has been added by the plugin."
+    property var rasterLayerNames: []
     property string activeJobId: ""
-    property string pluginVersion: "0.3.0"
+    property string pluginVersion: "0.4.0"
 
     signal closeRequested()
     signal refreshProjectRequested()
@@ -48,10 +60,19 @@ Item {
     signal runPredictionRequested()
     signal cancelPredictionRequested()
     signal removePredictionLayerRequested()
+    signal exportPredictionRequested()
+    signal sharePredictionExportRequested()
     signal pickAssessmentLocationRequested()
     signal useGnssRequested()
+    signal assessmentInputsRequested(real nominalDiameter, int gauge, string materialId, int minimumYears)
     signal runAssessmentRequested()
+    signal addPassVariableRasterRequested(string variableId, string name)
+    signal addPassServiceLifeRasterRequested()
+    signal addRemoteCogRequested()
+    signal removeRasterLayersRequested()
     signal apiBaseUrlRequested(string value)
+    signal passApiBaseUrlRequested(string value)
+    signal remoteCogConfigurationRequested(string url, string layerName)
     signal apiModeRequested(bool enabled)
     signal testApiRequested()
 
@@ -66,6 +87,9 @@ Item {
     readonly property color success: "#157A55"
     readonly property color warning: "#A56600"
     readonly property color danger: "#B43B32"
+    readonly property var passMaterialIds: ["rcp", "cast_iron", "plastic", "galvanized", "aluminized_csp", "aluminum", "steel"]
+    readonly property var passMaterialNames: ["RCP", "Cast Iron", "HDPE / PP / PVC", "Galvanized", "Aluminized CSP", "Aluminum", "Steel"]
+    readonly property var gaugeValues: [8, 10, 12, 14, 16, 18]
 
     function predictionStatusColor() {
         if (predictionStatus === "succeeded") return success;
@@ -103,6 +127,22 @@ Item {
         if (setupState === "no_point_layers") return "Inlet point layer required";
         if (setupState === "invalid_field") return "Project setup needs attention";
         return "Finish project setup";
+    }
+
+    function assessmentBusy() {
+        return assessmentStatus === "running";
+    }
+
+    function formattedSoilValue(value, suffix, decimals) {
+        if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) return "Unavailable";
+        var number = Number(value);
+        var text = decimals === undefined ? String(number) : number.toFixed(decimals);
+        return text + String(suffix || "");
+    }
+
+    function formattedYears(value) {
+        if (value === null || value === undefined || value === "" || !Number.isFinite(Number(value))) return "Unavailable";
+        return Number(value).toFixed(1) + " yr";
     }
 
     Rectangle {
@@ -551,7 +591,7 @@ Item {
                                 }
                                 GridLayout {
                                     Layout.fillWidth: true
-                                    columns: 3
+                                    columns: 4
                                     visible: panel.predictionSummary !== null
                                     columnSpacing: 8
                                     rowSpacing: 4
@@ -559,6 +599,7 @@ Item {
                                     Text { text: "Selected"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: "Predicted"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: "Potential"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                                    Text { text: "Unknown"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: panel.predictionSummary ? panel.predictionSummary.selectedInlets : "—"; color: panel.ink; font.pixelSize: 20; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: panel.predictionSummary ? panel.predictionSummary.predicted : "—"; color: panel.success; font.pixelSize: 20; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text {
@@ -570,11 +611,31 @@ Item {
                                         Layout.fillWidth: true
                                         horizontalAlignment: Text.AlignHCenter
                                     }
+                                    Text {
+                                        text: panel.predictionSummary && panel.predictionSummary.unknown !== undefined
+                                              ? panel.predictionSummary.unknown : "—"
+                                        color: panel.mutedInk
+                                        font.pixelSize: 20
+                                        font.bold: true
+                                        Layout.fillWidth: true
+                                        horizontalAlignment: Text.AlignHCenter
+                                    }
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    visible: !panel.mockMode && panel.predictionSummary !== null
+                                    visible: !panel.mockMode && panel.predictionSummary !== null &&
+                                             (panel.predictionSummary.potential === null || panel.predictionSummary.potential === undefined)
                                     text: "The API returns only pipes at or above the selected threshold; the potential-pipe count is not available."
+                                    color: panel.mutedInk
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WordWrap
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    visible: panel.predictionSummary !== null &&
+                                             panel.predictionSummary.potential !== null &&
+                                             panel.predictionSummary.potential > 0
+                                    text: "Predicted pipes use the normal result-layer opacity; potential pipes are placed in a separate semi-transparent layer."
                                     color: panel.mutedInk
                                     font.pixelSize: 11
                                     wrapMode: Text.WordWrap
@@ -588,6 +649,32 @@ Item {
                                     color: panel.mutedInk
                                     font.pixelSize: 12
                                     elide: Text.ElideMiddle
+                                }
+                                Button {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    text: "Save combined result as GeoJSON"
+                                    visible: panel.predictionResultLayer.length > 0
+                                    font.bold: true
+                                    palette.button: panel.primary
+                                    palette.buttonText: "white"
+                                    onClicked: panel.exportPredictionRequested()
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: panel.predictionExportPath.length > 0 ? "Saved: " + panel.predictionExportPath : ""
+                                    visible: text.length > 0
+                                    color: panel.success
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WrapAnywhere
+                                }
+                                Button {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 46
+                                    text: "Share exported GeoJSON"
+                                    visible: panel.predictionExportPath.length > 0
+                                    flat: true
+                                    onClicked: panel.sharePredictionExportRequested()
                                 }
                                 Button {
                                     Layout.fillWidth: true
@@ -649,7 +736,7 @@ Item {
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: "Choose a map location or the current GNSS position. Pipe midpoint selection will use this same point workflow when the production result layer is connected."
+                                    text: "Choose a map location or current GNSS position, then query the live PyPASS service for soil properties and service-life comparison. Results are estimates for review, not an automatic material recommendation."
                                     color: panel.mutedInk
                                     font.pixelSize: 13
                                     wrapMode: Text.WordWrap
@@ -690,7 +777,7 @@ Item {
                                     Layout.fillWidth: true
                                     implicitHeight: 54
                                     text: "Pick a point on the map"
-                                    enabled: panel.assessmentReady
+                                    enabled: panel.assessmentReady && !panel.assessmentBusy()
                                     font.bold: true
                                     palette.button: panel.primary
                                     palette.buttonText: "white"
@@ -700,7 +787,7 @@ Item {
                                     Layout.fillWidth: true
                                     implicitHeight: 50
                                     text: "Use current GNSS location"
-                                    enabled: panel.assessmentReady
+                                    enabled: panel.assessmentReady && !panel.assessmentBusy()
                                     onClicked: panel.useGnssRequested()
                                 }
                             }
@@ -730,20 +817,64 @@ Item {
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: "The first prototype uses a fixed 16-inch cast-iron nominal diameter. Material and gauge inputs will become editable after the production PyPASS contract is connected."
+                                    text: "Diameter affects the cast-iron estimate. Gauge selects which gauge-based estimates are shown."
                                     color: panel.mutedInk
                                     font.pixelSize: 13
+                                    wrapMode: Text.WordWrap
+                                }
+                                Text { text: "Cast-iron nominal diameter (in)"; color: panel.mutedInk; font.pixelSize: 12 }
+                                TextField {
+                                    id: diameterField
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    text: String(panel.assessmentNominalDiameter)
+                                    inputMethodHints: Qt.ImhFormattedNumbersOnly
+                                    enabled: !panel.assessmentBusy()
+                                    onEditingFinished: panel.assessmentInputsRequested(
+                                                           Number(text),
+                                                           panel.assessmentGauge,
+                                                           panel.assessmentMaterialId,
+                                                           panel.assessmentMinimumYears)
+                                }
+                                Text { text: "Gauge for corrugated materials"; color: panel.mutedInk; font.pixelSize: 12 }
+                                ComboBox {
+                                    id: assessmentGaugeBox
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    model: panel.gaugeValues
+                                    currentIndex: panel.gaugeValues.indexOf(panel.assessmentGauge)
+                                    enabled: !panel.assessmentBusy()
+                                    onActivated: panel.assessmentInputsRequested(
+                                                     Number(diameterField.text),
+                                                     Number(currentText),
+                                                     panel.assessmentMaterialId,
+                                                     panel.assessmentMinimumYears)
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: panel.assessmentMessage
+                                    color: panel.assessmentStatus === "failed" ? panel.danger : panel.mutedInk
+                                    font.pixelSize: 12
                                     wrapMode: Text.WordWrap
                                 }
                                 Button {
                                     Layout.fillWidth: true
                                     implicitHeight: 56
-                                    text: "Run service-life assessment"
-                                    enabled: panel.assessmentReady && panel.assessmentLocationLabel !== "No location selected"
+                                    text: panel.assessmentBusy() ? "Querying PyPASS…" : "Run live service-life assessment"
+                                    enabled: panel.assessmentReady && panel.assessmentLocationLabel !== "No location selected" &&
+                                             !panel.assessmentBusy() && !panel.predictionBusy() && panel.rasterStatus !== "loading" &&
+                                             Number(diameterField.text) > 0
                                     font.bold: true
                                     palette.button: panel.primary
                                     palette.buttonText: "white"
-                                    onClicked: panel.runAssessmentRequested()
+                                    onClicked: {
+                                        panel.assessmentInputsRequested(
+                                                    Number(diameterField.text),
+                                                    panel.assessmentGauge,
+                                                    panel.assessmentMaterialId,
+                                                    panel.assessmentMinimumYears);
+                                        panel.runAssessmentRequested();
+                                    }
                                 }
                             }
                         }
@@ -770,7 +901,7 @@ Item {
                                     Layout.fillWidth: true
                                     Text {
                                         Layout.fillWidth: true
-                                        text: "Mock assessment preview"
+                                        text: "Live PyPASS assessment"
                                         color: panel.ink
                                         font.pixelSize: 16
                                         font.bold: true
@@ -779,8 +910,8 @@ Item {
                                         Layout.preferredWidth: 58
                                         Layout.preferredHeight: 28
                                         radius: 14
-                                        color: "#FFF3D9"
-                                        Text { anchors.centerIn: parent; text: "MOCK"; color: panel.warning; font.pixelSize: 11; font.bold: true }
+                                        color: "#DDF2EA"
+                                        Text { anchors.centerIn: parent; text: "LIVE"; color: panel.success; font.pixelSize: 11; font.bold: true }
                                     }
                                 }
 
@@ -791,9 +922,9 @@ Item {
                                     Text { text: "pH"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: "Resistivity"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: "Chloride"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
-                                    Text { text: panel.assessmentResult ? panel.assessmentResult.soil.ph.toFixed(1) : "—"; color: panel.ink; font.pixelSize: 16; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
-                                    Text { text: panel.assessmentResult ? panel.assessmentResult.soil.resistivity_ohm_cm + " Ω·cm" : "—"; color: panel.ink; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
-                                    Text { text: panel.assessmentResult ? panel.assessmentResult.soil.chloride : "—"; color: panel.ink; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
+                                    Text { text: panel.assessmentResult ? panel.formattedSoilValue(panel.assessmentResult.soil.ph, "", 1) : "—"; color: panel.ink; font.pixelSize: 14; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
+                                    Text { text: panel.assessmentResult ? panel.formattedSoilValue(panel.assessmentResult.soil.resistivity_ohm_cm, " Ω·cm") : "—"; color: panel.ink; font.pixelSize: 13; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
+                                    Text { text: panel.assessmentResult && panel.assessmentResult.soil.chloride !== null ? panel.assessmentResult.soil.chloride : "Unavailable"; color: panel.ink; font.pixelSize: 13; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
                                 }
 
                                 Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: panel.divider }
@@ -810,7 +941,7 @@ Item {
                                             font.pixelSize: 13
                                         }
                                         Text {
-                                            text: modelData.years.toFixed(1) + " yr"
+                                            text: panel.formattedYears(modelData.years)
                                             color: panel.primaryDark
                                             font.pixelSize: 14
                                             font.bold: true
@@ -818,12 +949,180 @@ Item {
                                     }
                                 }
 
+                                Repeater {
+                                    model: panel.assessmentResult && panel.assessmentResult.warnings
+                                           ? panel.assessmentResult.warnings : []
+                                    delegate: Text {
+                                        Layout.fillWidth: true
+                                        text: "Coverage note: " + modelData
+                                        color: panel.warning
+                                        font.pixelSize: 12
+                                        wrapMode: Text.WordWrap
+                                    }
+                                }
+
                                 Text {
                                     Layout.fillWidth: true
-                                    text: "These deterministic values exist only to test the mobile interface. They are not engineering estimates or material recommendations."
+                                    text: "PyPASS compares estimated service life across materials and gauges. It does not select or recommend a material; engineering, cost, and field criteria still require review."
                                     color: panel.warning
                                     font.pixelSize: 12
                                     wrapMode: Text.WordWrap
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 14
+                            Layout.rightMargin: 14
+                            Layout.preferredHeight: rasterColumn.implicitHeight + 28
+                            radius: 14
+                            color: panel.surface
+                            border.color: panel.divider
+
+                            ColumnLayout {
+                                id: rasterColumn
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.margins: 14
+                                spacing: 10
+
+                                Text {
+                                    text: "3  Review hosted raster layers"
+                                    color: panel.ink
+                                    font.pixelSize: 16
+                                    font.bold: true
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "Add the live PyPASS soil or service-life tiles to the QField map. You can also provide a direct public HTTPS COG/GeoTIFF URL; no default raw COG URL is embedded in the plugin."
+                                    color: panel.mutedInk
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 6
+                                    Button {
+                                        Layout.fillWidth: true
+                                        implicitHeight: 48
+                                        text: "pH"
+                                        enabled: !panel.predictionBusy() && !panel.assessmentBusy() && panel.rasterStatus !== "loading"
+                                        onClicked: panel.addPassVariableRasterRequested("ph", "pH")
+                                    }
+                                    Button {
+                                        Layout.fillWidth: true
+                                        implicitHeight: 48
+                                        text: "Resistivity"
+                                        enabled: !panel.predictionBusy() && !panel.assessmentBusy() && panel.rasterStatus !== "loading"
+                                        onClicked: panel.addPassVariableRasterRequested("resistivity", "Resistivity")
+                                    }
+                                    Button {
+                                        Layout.fillWidth: true
+                                        implicitHeight: 48
+                                        text: "Chloride"
+                                        enabled: !panel.predictionBusy() && !panel.assessmentBusy() && panel.rasterStatus !== "loading"
+                                        onClicked: panel.addPassVariableRasterRequested("chloride", "Chloride")
+                                    }
+                                }
+
+                                Text { text: "Service-life material"; color: panel.mutedInk; font.pixelSize: 12 }
+                                ComboBox {
+                                    id: rasterMaterialBox
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    model: panel.passMaterialNames
+                                    currentIndex: Math.max(0, panel.passMaterialIds.indexOf(panel.assessmentMaterialId))
+                                    onActivated: panel.assessmentInputsRequested(
+                                                     Number(diameterField.text),
+                                                     panel.assessmentGauge,
+                                                     panel.passMaterialIds[currentIndex],
+                                                     panel.assessmentMinimumYears)
+                                }
+                                Text { text: "Minimum service life (years)"; color: panel.mutedInk; font.pixelSize: 12 }
+                                TextField {
+                                    id: minimumYearsField
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    text: String(panel.assessmentMinimumYears)
+                                    inputMethodHints: Qt.ImhDigitsOnly
+                                    onEditingFinished: panel.assessmentInputsRequested(
+                                                           Number(diameterField.text),
+                                                           panel.assessmentGauge,
+                                                           panel.assessmentMaterialId,
+                                                           Math.max(0, Number(text) || 0))
+                                }
+                                Button {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    text: "Add service-life raster"
+                                    enabled: !panel.predictionBusy() && !panel.assessmentBusy() && panel.rasterStatus !== "loading"
+                                    font.bold: true
+                                    palette.button: panel.primary
+                                    palette.buttonText: "white"
+                                    onClicked: {
+                                        panel.assessmentInputsRequested(
+                                                    Number(diameterField.text),
+                                                    panel.assessmentGauge,
+                                                    panel.assessmentMaterialId,
+                                                    Math.max(0, Number(minimumYearsField.text) || 0));
+                                        panel.addPassServiceLifeRasterRequested();
+                                    }
+                                }
+
+                                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: panel.divider }
+                                Text { text: "Direct COG/GeoTIFF URL"; color: panel.mutedInk; font.pixelSize: 12 }
+                                TextField {
+                                    id: cogUrlField
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    text: panel.remoteCogUrl
+                                    placeholderText: "https://host/path/layer.tif"
+                                    inputMethodHints: Qt.ImhUrlCharactersOnly
+                                    onEditingFinished: panel.remoteCogConfigurationRequested(text.trim(), cogNameField.text.trim())
+                                }
+                                TextField {
+                                    id: cogNameField
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    text: panel.remoteCogLayerName
+                                    placeholderText: "Remote COG layer name"
+                                    onEditingFinished: panel.remoteCogConfigurationRequested(cogUrlField.text.trim(), text.trim())
+                                }
+                                Button {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    text: "Add remote COG to map"
+                                    enabled: !panel.predictionBusy() && !panel.assessmentBusy() && panel.rasterStatus !== "loading"
+                                    onClicked: {
+                                        panel.remoteCogConfigurationRequested(cogUrlField.text.trim(), cogNameField.text.trim());
+                                        panel.addRemoteCogRequested();
+                                    }
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: panel.rasterMessage
+                                    color: panel.rasterStatus === "failed" ? panel.danger : panel.mutedInk
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: panel.rasterLayerNames.length > 0
+                                          ? "Plugin raster layers: " + panel.rasterLayerNames.join(", ") : ""
+                                    visible: text.length > 0
+                                    color: panel.mutedInk
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WordWrap
+                                }
+                                Button {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 46
+                                    text: "Remove plugin raster layers"
+                                    visible: panel.rasterLayerNames.length > 0
+                                    flat: true
+                                    onClicked: panel.removeRasterLayersRequested()
                                 }
                             }
                         }
@@ -961,7 +1260,7 @@ Item {
                                         Layout.fillWidth: true
                                         spacing: 1
                                         Text { text: "Use live Prediction API"; color: panel.ink; font.pixelSize: 14; font.bold: true }
-                                        Text { text: "Assessment remains mock in this version"; color: panel.mutedInk; font.pixelSize: 11 }
+                                        Text { text: "PyPASS assessment uses its own live endpoint"; color: panel.mutedInk; font.pixelSize: 11 }
                                     }
                                     Switch {
                                         checked: !panel.mockMode
@@ -1026,6 +1325,24 @@ Item {
                                     enabled: panel.apiConnectionStatus !== "checking" && panel.activeJobId.length === 0 && !panel.predictionBusy()
                                     onClicked: panel.testApiRequested()
                                 }
+                                Rectangle { Layout.fillWidth: true; Layout.preferredHeight: 1; color: panel.divider }
+                                Text { text: "PyPASS API origin"; color: panel.ink; font.pixelSize: 14; font.bold: true }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "Used for live point assessment and hosted raster catalogs. Keep it separate from the /predapi Prediction base."
+                                    color: panel.mutedInk
+                                    font.pixelSize: 12
+                                    wrapMode: Text.WordWrap
+                                }
+                                TextField {
+                                    id: passApiField
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    text: panel.passApiBaseUrl
+                                    placeholderText: "https://host.example.org"
+                                    inputMethodHints: Qt.ImhUrlCharactersOnly
+                                    onEditingFinished: panel.passApiBaseUrlRequested(text.trim())
+                                }
                                 Text {
                                     Layout.fillWidth: true
                                     visible: !panel.mockMode
@@ -1049,7 +1366,7 @@ Item {
                                 anchors.fill: parent
                                 anchors.margins: 14
                                 Text { text: "DeepPipe Mobile " + panel.pluginVersion; color: panel.ink; font.pixelSize: 14; font.bold: true }
-                                Text { Layout.fillWidth: true; text: "Tap, box, and visible-area inlet selection · resumable Prediction jobs · mock Assessment"; color: panel.mutedInk; font.pixelSize: 12; wrapMode: Text.WordWrap }
+                                Text { Layout.fillWidth: true; text: "Map inlet selection · resumable Prediction jobs · GeoJSON export · live PyPASS assessment · hosted raster review"; color: panel.mutedInk; font.pixelSize: 12; wrapMode: Text.WordWrap }
                             }
                         }
 

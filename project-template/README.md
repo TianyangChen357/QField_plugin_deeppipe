@@ -9,6 +9,8 @@ Keep the project file and `data/inlets.geojson` in the same relative structure w
 - human-readable display field: `node_id`
 - schema version: `1.0`
 - Prediction API base: `https://lab.yyworkshop.com/predapi`
+- PyPASS API origin: `https://lab.yyworkshop.com`
+- remote COG URL: intentionally blank until a direct public object URL is supplied
 - initial transport mode: `live` (a mock fallback remains in Setup)
 
 The ten synthetic features include stable UUID values. New inlet features are configured with the QGIS default expression `uuid('WithoutBraces')` and the UUID field is not editable, demonstrating the recommended multi-user/offline identity pattern.

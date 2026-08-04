@@ -108,9 +108,7 @@ function parseProjectMappings(text) {
 
 function projectMapping(text, projectPath, projectName) {
     var mappings = parseProjectMappings(text);
-    var pathKey = projectKey(projectPath, projectName);
-    var titleKey = projectKey("", projectName);
-    var mapping = mappings[pathKey] || mappings[titleKey];
+    var mapping = mappings[projectKey(projectPath, projectName)];
     return mapping && typeof mapping === "object" && !Array.isArray(mapping) ? mapping : null;
 }
 
@@ -123,8 +121,25 @@ function updateProjectMapping(text, projectPath, projectName, mapping) {
         confirmed_at: String(mapping && mapping.confirmed_at || new Date().toISOString())
     };
     mappings[projectKey(projectPath, projectName)] = normalized;
-    mappings[projectKey("", projectName)] = normalized;
     return JSON.stringify(mappings);
+}
+
+function projectServiceSettings(text, projectPath, projectName) {
+    var settingsByProject = parseProjectMappings(text);
+    var settings = settingsByProject[projectKey(projectPath, projectName)];
+    return settings && typeof settings === "object" && !Array.isArray(settings) ? settings : null;
+}
+
+function updateProjectServiceSettings(text, projectPath, projectName, settings) {
+    var settingsByProject = parseProjectMappings(text);
+    var source = settings || {};
+    settingsByProject[projectKey(projectPath, projectName)] = {
+        api_base_url: String(source.api_base_url || ""),
+        pypass_api_base_url: String(source.pypass_api_base_url || ""),
+        remote_cog_url: String(source.remote_cog_url || ""),
+        remote_cog_layer_name: String(source.remote_cog_layer_name || "DeepPipe Remote COG")
+    };
+    return JSON.stringify(settingsByProject);
 }
 
 function mergePointRecords(currentRecords, incomingRecords) {
@@ -372,7 +387,7 @@ function buildMockPrediction(points, inputConfig, jobId) {
             ok: false,
             validation: validation,
             featureCollection: { type: "FeatureCollection", features: [] },
-            summary: { total: 0, predicted: 0, potential: 0 }
+            summary: { total: 0, predicted: 0, potential: 0, unknown: 0 }
         };
     }
 
@@ -409,7 +424,7 @@ function buildMockPrediction(points, inputConfig, jobId) {
                 within_search_radius: withinRadius ? 1 : 0,
                 prob: Number(probability.toFixed(4)),
                 model_class: modelClass,
-                class: 1,
+                class: modelClass,
                 result_type: resultType,
                 review_status: "unreviewed",
                 job_id: jobId || "mock",
@@ -436,6 +451,7 @@ function buildMockPrediction(points, inputConfig, jobId) {
             total: features.length,
             predicted: predicted,
             potential: potential,
+            unknown: 0,
             selectedInlets: points.length,
             threshold: config.classification_threshold
         },
@@ -480,6 +496,60 @@ function apiUrl(baseUrl, path) {
     return base + suffix;
 }
 
+function resolveCatalogUrl(baseUrl, value) {
+    var url = String(value || "").trim();
+    if (/^https?:\/\//i.test(url)) return url;
+    var base = normalizeApiBaseUrl(baseUrl);
+    if (!base || !url) return "";
+    if (url.charAt(0) === "/") {
+        var origin = base.match(/^(https?:\/\/[^/]+)/i);
+        return origin ? origin[1] + url : "";
+    }
+    return apiUrl(base, url);
+}
+
+function normalizeRemoteRasterUrl(value) {
+    var url = String(value || "").trim();
+    if (!/^https:\/\/[^\s]+$/i.test(url)) return "";
+    return url;
+}
+
+function gdalRemoteRasterUri(value) {
+    var url = normalizeRemoteRasterUrl(value);
+    return url ? "/vsicurl/" + url : "";
+}
+
+function xyzRasterUri(value, minimumZoom, maximumZoom) {
+    var url = normalizeRemoteRasterUrl(value);
+    if (!url) return "";
+    var encodedUrl = url
+            .replace(/\{/g, "%7B")
+            .replace(/\}/g, "%7D")
+            .replace(/\?/g, "%3F")
+            .replace(/&/g, "%26")
+            .replace(/=/g, "%3D");
+    return "type=xyz&tilePixelRatio=1&url=" + encodedUrl +
+            "&zmax=" + Math.round(asFiniteNumber(maximumZoom, 19)) +
+            "&zmin=" + Math.round(asFiniteNumber(minimumZoom, 4)) +
+            "&crs=EPSG3857";
+}
+
+function appendUrlQuery(value, query) {
+    var url = String(value || "");
+    var suffix = String(query || "").replace(/^[?&]+/, "");
+    if (!url || !suffix) return url;
+    if (/[?&]$/.test(url)) return url + suffix;
+    return url + (url.indexOf("?") >= 0 ? "&" : "?") + suffix;
+}
+
+function safeFilePart(value, fallback) {
+    var cleaned = String(value || "")
+            .replace(/[^A-Za-z0-9._-]+/g, "-")
+            .replace(/^-+|-+$/g, "")
+            .slice(0, 80);
+    return cleaned || String(fallback || "result");
+}
+
 function tryParseJson(text) {
     if (text && typeof text === "object") return text;
     var source = String(text || "").trim();
@@ -517,7 +587,13 @@ function apiErrorMessage(payload, status, fallbackText) {
 }
 
 function choosePipeResultFilename(files) {
-    var names = Array.isArray(files) ? files.map(function (value) { return String(value); }) : [];
+    var names = Array.isArray(files) ? files.map(function (value) {
+        if (value && typeof value === "object") {
+            value = value.name || value.filename || value.path || value.url || "";
+        }
+        var normalized = String(value || "").split(/[?#]/)[0].replace(/\\/g, "/");
+        return normalized.slice(normalized.lastIndexOf("/") + 1);
+    }).filter(function (value) { return value.length > 0; }) : [];
     var exact = names.find(function (name) { return name.toLowerCase() === "pipes.geojson"; });
     if (exact) return exact;
     var pipeGeoJson = names.find(function (name) {
@@ -527,7 +603,102 @@ function choosePipeResultFilename(files) {
     return pipeGeoJson || "";
 }
 
-function decorateLiveResult(featureCollection, jobId) {
+function predictionResultType(feature, threshold) {
+    var properties = feature && feature.properties ? feature.properties : {};
+    var classValue = properties.class;
+    if (classValue !== undefined && classValue !== null && classValue !== "") {
+        var normalizedClass = Number(classValue);
+        if (Number.isFinite(normalizedClass)) {
+            if (normalizedClass === 1) return "predicted";
+            if (normalizedClass === 0) return "potential";
+            return "unknown";
+        }
+    }
+
+    var connectivity = properties.is_connect;
+    if (connectivity !== undefined && connectivity !== null && connectivity !== "") {
+        var normalizedConnectivity = Number(connectivity);
+        if (Number.isFinite(normalizedConnectivity)) {
+            if (normalizedConnectivity === 1) return "predicted";
+            if (normalizedConnectivity === 0 || normalizedConnectivity === -1) return "potential";
+            return "unknown";
+        }
+    }
+
+    var probability = properties.prob;
+    if (probability === undefined || probability === null || probability === "") probability = properties.probability;
+    if (probability === undefined || probability === null || probability === "") probability = properties.score;
+    var numericProbability = Number(probability);
+    var numericThreshold = Number(threshold);
+    if (Number.isFinite(numericProbability) && Number.isFinite(numericThreshold)) {
+        return numericProbability >= numericThreshold ? "predicted" : "potential";
+    }
+
+    var explicitType = String(properties.deeppipe_outcome || properties.result_type || properties.display_class || "").toLowerCase();
+    if (["potential", "negative", "rejected", "below_threshold", "class_0"].indexOf(explicitType) >= 0) {
+        return "potential";
+    }
+    if (["predicted", "positive", "accepted", "class_1"].indexOf(explicitType) >= 0) {
+        return "predicted";
+    }
+    if (explicitType === "unknown") return "unknown";
+
+    var modelClass = properties.model_class;
+    if (modelClass !== undefined && modelClass !== null && modelClass !== "") {
+        var normalizedModelClass = Number(modelClass);
+        if (Number.isFinite(normalizedModelClass)) {
+            if (normalizedModelClass === 1) return "predicted";
+            if (normalizedModelClass === 0) return "potential";
+        }
+    }
+    return "unknown";
+}
+
+function partitionPredictionResults(featureCollection, threshold) {
+    var source = featureCollection || {};
+    var predicted = [];
+    var potential = [];
+    var unknown = [];
+    (Array.isArray(source.features) ? source.features : []).forEach(function (feature) {
+        var resultType = predictionResultType(feature, threshold);
+        var copy = {
+            type: feature.type || "Feature",
+            geometry: feature.geometry,
+            properties: {}
+        };
+        if (feature.id !== undefined) copy.id = feature.id;
+        var properties = feature.properties || {};
+        Object.keys(properties).forEach(function (key) { copy.properties[key] = properties[key]; });
+        copy.properties.result_type = resultType;
+        copy.properties.display_class = resultType;
+        copy.properties.deeppipe_outcome = resultType;
+        copy.properties.deeppipe_color = resultType === "predicted"
+                ? "#16a34a"
+                : (resultType === "potential" ? "#f59e0b" : "#64748b");
+        if (resultType === "potential") potential.push(copy);
+        else if (resultType === "predicted") predicted.push(copy);
+        else unknown.push(copy);
+    });
+
+    function collection(features) {
+        return {
+            type: "FeatureCollection",
+            crs: source.crs,
+            features: features
+        };
+    }
+    return {
+        predicted: collection(predicted),
+        potential: collection(potential),
+        unknown: collection(unknown),
+        predictedCount: predicted.length,
+        potentialCount: potential.length,
+        unknownCount: unknown.length,
+        total: predicted.length + potential.length + unknown.length
+    };
+}
+
+function decorateLiveResult(featureCollection, jobId, threshold) {
     var source = featureCollection || {};
     var features = Array.isArray(source.features) ? source.features : [];
     var decorated = features.map(function (feature) {
@@ -542,6 +713,12 @@ function decorateLiveResult(featureCollection, jobId) {
         copy.properties.job_id = String(jobId || "");
         copy.properties.analysis_mode = "live_api";
         copy.properties.review_status = copy.properties.review_status || "unreviewed";
+        copy.properties.result_type = predictionResultType(copy, threshold);
+        copy.properties.display_class = copy.properties.result_type;
+        copy.properties.deeppipe_outcome = copy.properties.result_type;
+        copy.properties.deeppipe_color = copy.properties.result_type === "predicted"
+                ? "#16a34a"
+                : (copy.properties.result_type === "potential" ? "#f59e0b" : "#64748b");
         return copy;
     });
     return {
@@ -555,12 +732,12 @@ function decorateLiveResult(featureCollection, jobId) {
 }
 
 function summarizeLiveResult(featureCollection, selectedCount, threshold) {
-    var features = featureCollection && Array.isArray(featureCollection.features)
-            ? featureCollection.features : [];
+    var partitions = partitionPredictionResults(featureCollection, threshold);
     return {
-        total: features.length,
-        predicted: features.length,
-        potential: null,
+        total: partitions.total,
+        predicted: partitions.predictedCount,
+        potential: partitions.potentialCount > 0 ? partitions.potentialCount : null,
+        unknown: partitions.unknownCount,
         selectedInlets: Number(selectedCount || 0),
         threshold: Number(threshold || 0)
     };
@@ -599,6 +776,123 @@ function chlorideLabel(seed) {
     if (seed < 0.7) return "High";
     if (seed < 0.9) return "Very High";
     return "Extremely High";
+}
+
+function passMaterials() {
+    return [
+        { id: "rcp", name: "RCP", requires_gauge: false, default_gauge: 0, gauge_sizes: [] },
+        { id: "cast_iron", name: "Cast Iron", requires_gauge: false, default_gauge: 0, gauge_sizes: [] },
+        { id: "plastic", name: "HDPE / PP / PVC", requires_gauge: false, default_gauge: 0, gauge_sizes: [] },
+        { id: "galvanized", name: "Galvanized", requires_gauge: true, default_gauge: 16, gauge_sizes: [8, 10, 12, 14, 16, 18] },
+        { id: "aluminized_csp", name: "Aluminized CSP", requires_gauge: true, default_gauge: 16, gauge_sizes: [8, 10, 12, 14, 16] },
+        { id: "aluminum", name: "Aluminum", requires_gauge: true, default_gauge: 12, gauge_sizes: [8, 10, 12, 14, 16] },
+        { id: "steel", name: "Steel", requires_gauge: true, default_gauge: 16, gauge_sizes: [8, 10, 12, 14, 16, 18] }
+    ];
+}
+
+function passMaterialById(materialId) {
+    var id = String(materialId || "");
+    return passMaterials().find(function (material) { return material.id === id; }) || passMaterials()[0];
+}
+
+function passRasterGauge(materialId, requestedGauge, catalogMaterials) {
+    var fallback = passMaterialById(materialId);
+    var catalog = (Array.isArray(catalogMaterials) ? catalogMaterials : []).find(function (item) {
+        return String(item && item.id || "") === fallback.id;
+    }) || {};
+    var requiresGauge = typeof catalog.requires_gauge === "boolean"
+            ? catalog.requires_gauge : fallback.requires_gauge;
+    if (!requiresGauge) {
+        return { requiresGauge: false, gauge: 0, requestedGauge: 0, adjusted: false, allowedGauges: [] };
+    }
+    var allowed = (Array.isArray(catalog.gauge_sizes) ? catalog.gauge_sizes : fallback.gauge_sizes)
+            .map(function (value) { return Math.round(Number(value)); })
+            .filter(function (value, index, values) {
+                return Number.isFinite(value) && value > 0 && values.indexOf(value) === index;
+            });
+    var requested = Math.round(asFiniteNumber(requestedGauge, fallback.default_gauge));
+    var catalogDefault = Math.round(asFiniteNumber(catalog.default_gauge, fallback.default_gauge));
+    var selected = allowed.indexOf(requested) >= 0
+            ? requested
+            : (allowed.indexOf(catalogDefault) >= 0 ? catalogDefault : (allowed[0] || requested));
+    return {
+        requiresGauge: true,
+        gauge: selected,
+        requestedGauge: requested,
+        adjusted: selected !== requested,
+        allowedGauges: allowed
+    };
+}
+
+function passVariableTilePath(variableId) {
+    var id = String(variableId || "").toLowerCase();
+    return ["ph", "resistivity", "chloride"].indexOf(id) >= 0
+            ? "/api/pypass/tiles/" + id + "/{z}/{x}/{y}.png"
+            : "";
+}
+
+function passServiceLifeTilePath(materialId, minimumYears, gauge) {
+    var material = passMaterialById(materialId);
+    var gaugeSelection = passRasterGauge(material.id, gauge, []);
+    var years = Math.max(0, Math.round(asFiniteNumber(minimumYears, 0)));
+    var path = "/api/pypass/service-life-tiles/" + encodeURIComponent(material.id) +
+            "/{z}/{x}/{y}.png?min_years=" + years;
+    if (gaugeSelection.requiresGauge) {
+        path += "&gauge=" + gaugeSelection.gauge;
+    }
+    return path;
+}
+
+function normalizeLiveAssessment(payload, selectedGauge) {
+    var data = payload || {};
+    var location = data.location || {};
+    var soil = data.soil || {};
+    var serviceLife = data.service_life || {};
+    var fixed = serviceLife.fixed_materials || {};
+    var gaugeRows = Array.isArray(serviceLife.gauge_materials) ? serviceLife.gauge_materials : [];
+    var requestedGauge = Math.round(asFiniteNumber(selectedGauge, 16));
+    var gaugeRow = gaugeRows.find(function (row) { return Number(row && row.gauge) === requestedGauge; });
+    if (!gaugeRow && gaugeRows.length > 0) gaugeRow = gaugeRows[0];
+    gaugeRow = gaugeRow || {};
+    var gauge = Number.isFinite(Number(gaugeRow.gauge)) ? Number(gaugeRow.gauge) : requestedGauge;
+
+    function estimate(id, name, value, estimateGauge) {
+        var years = value === undefined || value === null || value === "" ? NaN : Number(value);
+        return {
+            id: id,
+            name: name,
+            years: Number.isFinite(years) ? years : null,
+            gauge: estimateGauge || ""
+        };
+    }
+
+    var latitude = Number(location.latitude);
+    var longitude = Number(location.longitude);
+    return {
+        ok: Number.isFinite(latitude) && Number.isFinite(longitude) &&
+                data.soil !== undefined && data.soil !== null &&
+                data.service_life !== undefined && data.service_life !== null,
+        mode: "live_api",
+        location: { latitude: latitude, longitude: longitude },
+        nominal_diameter_cast_iron: data.nominal_diameter_cast_iron === undefined || data.nominal_diameter_cast_iron === null || data.nominal_diameter_cast_iron === ""
+                ? 16 : asFiniteNumber(data.nominal_diameter_cast_iron, 16),
+        soil: {
+            ph: soil.ph !== undefined && soil.ph !== null && soil.ph !== "" && Number.isFinite(Number(soil.ph)) ? Number(soil.ph) : null,
+            resistivity_ohm_cm: soil.resistivity_ohm_cm !== undefined && soil.resistivity_ohm_cm !== null && soil.resistivity_ohm_cm !== "" && Number.isFinite(Number(soil.resistivity_ohm_cm)) ? Number(soil.resistivity_ohm_cm) : null,
+            chloride: soil.chloride === undefined || soil.chloride === null || String(soil.chloride).trim() === ""
+                    ? null : String(soil.chloride)
+        },
+        estimates: [
+            estimate("rcp", "RCP", fixed.reinforced_concrete_pipe_rcp_years, ""),
+            estimate("cast_iron", "Cast Iron", fixed.cast_iron_pipe_years, ""),
+            estimate("plastic", "HDPE / PP / PVC", fixed.plastic_pipes_hdpe_pp_pvc_years, ""),
+            estimate("galvanized", "Galvanized", gaugeRow.galvanized_pipe_years, gauge),
+            estimate("aluminized_csp", "Aluminized CSP", gaugeRow.aluminized_csp_type_2_pipe_years, gauge),
+            estimate("aluminum", "Aluminum", gaugeRow.aluminum_pipe_years, gauge),
+            estimate("steel", "Steel", gaugeRow.steel_pipe_years, gauge)
+        ],
+        warnings: Array.isArray(data.warnings) ? data.warnings.map(function (warning) { return String(warning); }) : []
+    };
 }
 
 function buildMockAssessment(latitude, longitude, diameter) {

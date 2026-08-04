@@ -201,6 +201,9 @@
       <prediction_result_layer type="QString">DeepPipe Predicted Pipes</prediction_result_layer>
       <assessment_layer type="QString">DeepPipe Assessments</assessment_layer>
       <api_base_url type="QString">https://lab.yyworkshop.com/predapi</api_base_url>
+      <pypass_api_base_url type="QString">https://lab.yyworkshop.com</pypass_api_base_url>
+      <remote_cog_url type="QString"></remote_cog_url>
+      <remote_cog_layer_name type="QString">DeepPipe Remote COG</remote_cog_layer_name>
       <api_mode type="QString">live</api_mode>
     </DeepPipe>
     <Paths><Absolute type="bool">false</Absolute></Paths>

@@ -64,10 +64,47 @@ assert.equal(
   "inlet_uuid",
 );
 assert.equal(
-  context.projectMapping(mappingJson, "/projects/moved.qgs", "Same title").layer_id,
-  "layer-a",
+  context.projectMapping(mappingJson, "/projects/moved.qgs", "Same title"),
+  null,
 );
+assert.equal(context.projectMapping(mappingJson, "/projects/b.qgs", "Same title"), null);
 assert.equal(context.projectMapping("not json", "/projects/a.qgs", "Same title"), null);
+
+let serviceSettingsJson = context.updateProjectServiceSettings(
+  "{}",
+  "/projects/a.qgs",
+  "Same title",
+  {
+    api_base_url: "https://prediction-a.example",
+    pypass_api_base_url: "https://pypass-a.example",
+    remote_cog_url: "https://rasters-a.example/service-life.tif",
+    remote_cog_layer_name: "Project A service life",
+  },
+);
+serviceSettingsJson = context.updateProjectServiceSettings(
+  serviceSettingsJson,
+  "/projects/b.qgs",
+  "Same title",
+  {
+    api_base_url: "https://prediction-b.example",
+    pypass_api_base_url: "https://pypass-b.example",
+    remote_cog_url: "",
+    remote_cog_layer_name: "DeepPipe Remote COG",
+  },
+);
+assert.equal(
+  context.projectServiceSettings(serviceSettingsJson, "/projects/a.qgs", "Same title").remote_cog_url,
+  "https://rasters-a.example/service-life.tif",
+);
+assert.equal(
+  context.projectServiceSettings(serviceSettingsJson, "/projects/b.qgs", "Same title").api_base_url,
+  "https://prediction-b.example",
+);
+assert.equal(
+  context.projectServiceSettings(serviceSettingsJson, "/projects/b.qgs", "Same title").remote_cog_url,
+  "",
+);
+assert.equal(context.projectServiceSettings(serviceSettingsJson, "/projects/c.qgs", "Same title"), null);
 
 const bulkRecords = Array.from({ length: 500 }, (_, index) => ({
   fid: index + 1,
@@ -132,6 +169,12 @@ assert.equal(wideRadiusPrediction.featureCollection.features.every((feature) => 
 assert.equal(tightRadiusPrediction.summary.predicted, 0);
 assert.equal(wideRadiusPrediction.summary.predicted, 2);
 assert.equal(wideRadiusPrediction.featureCollection.features.every((feature) => feature.properties.distance_ft > 150), true);
+const tightRadiusPartitions = context.partitionPredictionResults(
+  tightRadiusPrediction.featureCollection,
+  tightRadiusPrediction.summary.threshold,
+);
+assert.equal(tightRadiusPartitions.predictedCount, tightRadiusPrediction.summary.predicted);
+assert.equal(tightRadiusPartitions.potentialCount, tightRadiusPrediction.summary.potential);
 
 const request = context.buildPredictionRequest(
   liveFeatureCollection,
@@ -155,6 +198,10 @@ assert.equal(
   "https://lab.yyworkshop.com/predapi/health",
 );
 assert.equal(
+  context.resolveCatalogUrl("https://lab.yyworkshop.com/deeppipe-pass", "/api/pypass/tiles/ph/{z}/{x}/{y}.png"),
+  "https://lab.yyworkshop.com/api/pypass/tiles/ph/{z}/{x}/{y}.png",
+);
+assert.equal(
   context.apiErrorMessage({ detail: [{ loc: ["body", "nodes"], msg: "Field required" }] }, 422, ""),
   "nodes: Field required",
 );
@@ -163,6 +210,11 @@ assert.equal(
   "CRS missing. Add EPSG:4326 definition.",
 );
 assert.equal(context.choosePipeResultFilename(["Structures.geojson", "Pipes.geojson", "log.txt"]), "Pipes.geojson");
+assert.equal(context.choosePipeResultFilename([{ name: "Pipes.geojson" }]), "Pipes.geojson");
+assert.equal(
+  context.choosePipeResultFilename([{ url: "https://example.org/jobs/7/Pipes.geojson?token=test" }]),
+  "Pipes.geojson",
+);
 assert.equal(context.choosePipeResultFilename(["Structures.geojson", "log.txt"]), "");
 
 const livePipeResult = {
@@ -176,16 +228,100 @@ const livePipeResult = {
 const decorated = context.decorateLiveResult(livePipeResult, "job-123");
 assert.equal(decorated.features[0].properties.job_id, "job-123");
 assert.equal(decorated.features[0].properties.analysis_mode, "live_api");
+assert.equal(decorated.features[0].properties.deeppipe_outcome, "unknown");
 assert.equal(decorated.crs.properties.name, "EPSG:4326");
-const liveSummary = context.summarizeLiveResult(decorated, 3, 0.85);
+const thresholdDecorated = context.decorateLiveResult(livePipeResult, "job-123", 0.85);
+assert.equal(thresholdDecorated.features[0].properties.deeppipe_outcome, "predicted");
+assert.equal(thresholdDecorated.features[0].properties.deeppipe_color, "#16a34a");
+assert.equal(context.predictionResultType({ properties: { class: 0 } }, 0.85), "potential");
+assert.equal(context.predictionResultType({ properties: { is_connect: -1 } }, 0.85), "potential");
+assert.equal(context.predictionResultType({ properties: { probability: 0.92 } }, 0.85), "predicted");
+assert.equal(context.predictionResultType({ properties: { score: 0.81 } }, 0.85), "potential");
+assert.equal(context.predictionResultType({ properties: { model_class: 0, class: 1 } }, 0.85), "predicted");
+assert.equal(context.predictionResultType({ properties: { result_type: "candidate" } }, 0.85), "unknown");
+const partitioned = context.partitionPredictionResults({
+  type: "FeatureCollection",
+  features: [
+    { type: "Feature", properties: { class: 1 }, geometry: null },
+    { type: "Feature", properties: { is_connect: 0 }, geometry: null },
+    { type: "Feature", properties: {}, geometry: null },
+  ],
+}, 0.85);
+assert.equal(partitioned.predictedCount, 1);
+assert.equal(partitioned.potentialCount, 1);
+assert.equal(partitioned.unknownCount, 1);
+const liveSummary = context.summarizeLiveResult(thresholdDecorated, 3, 0.85);
 assert.equal(liveSummary.predicted, 1);
 assert.equal(liveSummary.potential, null);
+assert.equal(liveSummary.unknown, 0);
 
 assert.equal(context.normalizeJobStatus("SUCCESS"), "succeeded");
 assert.equal(context.normalizeJobStatus("REVOKED"), "cancelled");
 assert.equal(context.normalizeJobStatus("PENDING"), "queued");
 assert.equal(context.normalizeJobStatus("STARTED"), "running");
 assert.equal(context.statusMessage({ info: { step: "Extracting factors" } }), "Extracting factors");
+
+assert.equal(context.normalizeRemoteRasterUrl("https://example.org/layer.tif"), "https://example.org/layer.tif");
+assert.equal(context.normalizeRemoteRasterUrl("http://example.org/layer.tif"), "");
+assert.equal(context.normalizeRemoteRasterUrl("file:///tmp/layer.tif"), "");
+assert.equal(context.gdalRemoteRasterUri("https://example.org/layer.tif"), "/vsicurl/https://example.org/layer.tif");
+assert.match(
+  context.xyzRasterUri("https://example.org/tiles/{z}/{x}/{y}.png?gauge=16&min_years=20", 4, 19),
+  /url=https:\/\/example\.org\/tiles\/%7Bz%7D\/%7Bx%7D\/%7By%7D\.png%3Fgauge%3D16%26min_years%3D20/,
+);
+assert.equal(context.appendUrlQuery("/tiles/{z}/{x}/{y}.png", "min_years=20"), "/tiles/{z}/{x}/{y}.png?min_years=20");
+assert.equal(context.appendUrlQuery("/tiles/{z}/{x}/{y}.png?style=life", "min_years=20"), "/tiles/{z}/{x}/{y}.png?style=life&min_years=20");
+assert.equal(context.passVariableTilePath("ph"), "/api/pypass/tiles/ph/{z}/{x}/{y}.png");
+assert.equal(
+  context.passServiceLifeTilePath("galvanized", 25, 16),
+  "/api/pypass/service-life-tiles/galvanized/{z}/{x}/{y}.png?min_years=25&gauge=16",
+);
+const aluminumGauge = context.passRasterGauge("aluminum", 18, [{
+  id: "aluminum",
+  requires_gauge: true,
+  gauge_sizes: [8, 10, 12, 14, 16],
+  default_gauge: 12,
+}]);
+assert.equal(aluminumGauge.gauge, 12);
+assert.equal(aluminumGauge.adjusted, true);
+assert.equal(context.passRasterGauge("steel", 18, []).gauge, 18);
+assert.equal(context.passRasterGauge("rcp", 18, []).requiresGauge, false);
+
+const liveAssessment = context.normalizeLiveAssessment({
+  location: { latitude: 35.2, longitude: -80.8 },
+  nominal_diameter_cast_iron: 16,
+  soil: { ph: null, resistivity_ohm_cm: 10000, chloride: "High" },
+  service_life: {
+    fixed_materials: {
+      reinforced_concrete_pipe_rcp_years: 33.4,
+      cast_iron_pipe_years: null,
+      plastic_pipes_hdpe_pp_pvc_years: 75,
+    },
+    gauge_materials: [{
+      gauge: 16,
+      galvanized_pipe_years: 80,
+      aluminized_csp_type_2_pipe_years: null,
+      aluminum_pipe_years: 90,
+      steel_pipe_years: 70,
+    }],
+  },
+  warnings: ["pH is unavailable for this location."],
+}, 16);
+assert.equal(liveAssessment.ok, true);
+assert.equal(liveAssessment.soil.ph, null);
+assert.equal(liveAssessment.soil.resistivity_ohm_cm, 10000);
+assert.equal(liveAssessment.estimates.find((item) => item.id === "cast_iron").years, null);
+assert.equal(liveAssessment.estimates.find((item) => item.id === "galvanized").years, 80);
+assert.equal(liveAssessment.warnings.length, 1);
+assert.equal(context.normalizeLiveAssessment({
+  location: { latitude: 35.2, longitude: -80.8 },
+  soil: { ph: null, resistivity_ohm_cm: null, chloride: "" },
+  service_life: { fixed_materials: {}, gauge_materials: [] },
+}, 16).soil.chloride, null);
+assert.equal(context.normalizeLiveAssessment({
+  location: { latitude: 35.2, longitude: -80.8 },
+  soil: {},
+}, 16).ok, false);
 
 const assessmentA = context.buildMockAssessment(35.2271, -80.8431, 16);
 const assessmentB = context.buildMockAssessment(35.2271, -80.8431, 16);

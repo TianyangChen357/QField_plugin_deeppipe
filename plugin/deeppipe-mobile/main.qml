@@ -11,13 +11,15 @@ Item {
     id: plugin
     objectName: "deepPipeMobilePlugin"
 
-    readonly property string pluginVersion: "0.3.0"
+    readonly property string pluginVersion: "0.4.0"
     readonly property string defaultApiBaseUrl: "https://lab.yyworkshop.com/predapi"
+    readonly property string defaultPassApiBaseUrl: "https://lab.yyworkshop.com"
 
     property var mainWindow: iface.mainWindow()
     property var mapCanvas: iface.mapCanvas()
     property var positionSource: iface.positioning()
-    property var pointHandler: iface.findItemByObjectName("pointHandler")
+    property var pointHandler: null
+    property bool pointHandlerRegistered: false
 
     property bool hasProject: false
     property string projectName: "No project"
@@ -49,7 +51,12 @@ Item {
     property string predictionMessage: ""
     property var predictionSummary: null
     property var predictionResultLayer: null
+    property var predictionResultLayers: []
+    property string predictionExportGeoJson: ""
+    property var predictionExportCrs: null
     property string predictionResultLayerName: ""
+    property string lastPredictionExportPath: ""
+    property string lastCompletedJobId: ""
     property string activeMockJobId: ""
     property int mockPredictionStage: 0
 
@@ -71,7 +78,17 @@ Item {
     property string assessmentLocationMethod: ""
     property string assessmentLocationLabel: "No location selected"
     property string assessmentStatus: "idle"
+    property string assessmentMessage: "Choose a map or GNSS location."
     property var assessmentResult: null
+    property double assessmentNominalDiameter: 16
+    property int assessmentGauge: 16
+    property string assessmentMaterialId: "rcp"
+    property int assessmentMinimumYears: 0
+
+    property var managedRasterLayers: []
+    property var managedRasterLayerNames: []
+    property string rasterStatus: "idle"
+    property string rasterMessage: "No PyPASS or COG raster has been added by the plugin."
 
     property bool selectionMutationInProgress: false
 
@@ -81,14 +98,60 @@ Item {
         property string apiBaseUrl: "https://lab.yyworkshop.com/predapi"
         property bool useLiveApi: true
         property bool apiModeInitialized: false
+        property string passApiBaseUrl: "https://lab.yyworkshop.com"
+        property string remoteCogUrl: ""
+        property string remoteCogLayerName: "DeepPipe Remote COG"
         property string lastProjectName: ""
         property string projectMappingsJson: "{}"
+        property string projectServiceSettingsJson: "{}"
         property string pendingJobsJson: "[]"
     }
 
     function configure() {
         loadProjectConfiguration(false);
         panelDrawer.open();
+    }
+
+    function ensurePointHandlerRegistered(showError) {
+        if (pointHandlerRegistered && pointHandler) return true;
+        var handler = iface.findItemByObjectName("pointHandler");
+        if (!handler || typeof handler.registerHandler !== "function") {
+            pointHandler = null;
+            pointHandlerRegistered = false;
+            iface.logMessage("DeepPipe Mobile could not find QField's map point handler.");
+            if (showError) toast("Map selection is unavailable in this QField session. Reopen the project or restart QField, then try again.");
+            return false;
+        }
+        var interactionHandler = function (point, type, interactionType) {
+            if (interactionType !== "clicked") return false;
+            if (plugin.interactionMode === "select_inlets") {
+                return plugin.handleInletMapTap(point);
+            }
+            if (plugin.interactionMode === "assessment_location") {
+                return plugin.handleAssessmentMapTap(point);
+            }
+            return false;
+        };
+        // QField's High point-handler priority is 100; its local QML enum is not exported to plugins.
+        // registerHandler() returns void, so a call that does not throw is the success signal.
+        try {
+            if (typeof handler.deregisterHandler === "function") {
+                handler.deregisterHandler("deeppipe_mobile_interactions");
+            }
+            handler.registerHandler(
+                        "deeppipe_mobile_interactions",
+                        interactionHandler,
+                        100);
+        } catch (error) {
+            pointHandler = null;
+            pointHandlerRegistered = false;
+            iface.logMessage("DeepPipe Mobile could not register its map point handler: " + String(error));
+            if (showError) toast("Map selection could not start. Restart QField, then try again.");
+            return false;
+        }
+        pointHandler = handler;
+        pointHandlerRegistered = true;
+        return true;
     }
 
     function toast(message) {
@@ -113,12 +176,12 @@ Item {
         if (request && typeof request.abort === "function") request.abort();
     }
 
-    function sendApiRequest(method, path, body, timeoutMs, callback) {
+    function sendApiRequestTo(baseUrl, method, path, body, timeoutMs, callback) {
         if (activeRequest) {
             if (callback) callback(false, null, 0, "Another DeepPipe request is still in progress.");
             return false;
         }
-        var url = DeepPipe.apiUrl(appSettings.apiBaseUrl, path);
+        var url = DeepPipe.apiUrl(baseUrl, path);
         if (!url) {
             if (callback) callback(false, null, 0, "Enter a valid http or https API base URL in Setup.");
             return false;
@@ -168,6 +231,24 @@ Item {
         return true;
     }
 
+    function sendApiRequest(method, path, body, timeoutMs, callback) {
+        return sendApiRequestTo(appSettings.apiBaseUrl, method, path, body, timeoutMs, callback);
+    }
+
+    function saveCurrentProjectServiceSettings() {
+        if (!hasProject || !currentProjectKey) return;
+        appSettings.projectServiceSettingsJson = DeepPipe.updateProjectServiceSettings(
+                    appSettings.projectServiceSettingsJson,
+                    projectPath,
+                    projectName,
+                    {
+                        api_base_url: appSettings.apiBaseUrl,
+                        pypass_api_base_url: appSettings.passApiBaseUrl,
+                        remote_cog_url: appSettings.remoteCogUrl,
+                        remote_cog_layer_name: appSettings.remoteCogLayerName
+                    });
+    }
+
     function setApiBaseUrl(value) {
         if (activeJobId || activeRequest) {
             toast("Wait for the current Prediction request before changing the API URL.");
@@ -179,6 +260,7 @@ Item {
             return;
         }
         appSettings.apiBaseUrl = normalized;
+        saveCurrentProjectServiceSettings();
         apiConnectionStatus = "unknown";
         apiConnectionMessage = "Not checked";
     }
@@ -382,9 +464,15 @@ Item {
         var configuredLayerName = hasProject ? String(iface.readProjectEntry("DeepPipe", "inlet_layer", "")) : "";
         var configuredNodeField = hasProject ? String(iface.readProjectEntry("DeepPipe", "node_id_field", "")) : "";
         var configuredApiBase = hasProject ? String(iface.readProjectEntry("DeepPipe", "api_base_url", "")) : "";
+        var configuredPassApiBase = hasProject ? String(iface.readProjectEntry("DeepPipe", "pypass_api_base_url", "")) : "";
+        var configuredCogUrl = hasProject ? String(iface.readProjectEntry("DeepPipe", "remote_cog_url", "")) : "";
+        var configuredCogName = hasProject ? String(iface.readProjectEntry("DeepPipe", "remote_cog_layer_name", "")) : "";
         var configuredApiMode = hasProject ? String(iface.readProjectEntry("DeepPipe", "api_mode", "")).toLowerCase() : "";
         var savedMapping = hasProject
                 ? DeepPipe.projectMapping(appSettings.projectMappingsJson, projectPath, projectName)
+                : null;
+        var savedServiceSettings = hasProject
+                ? DeepPipe.projectServiceSettings(appSettings.projectServiceSettingsJson, projectPath, projectName)
                 : null;
 
         var nextLayerId = "";
@@ -419,12 +507,24 @@ Item {
         if (!nodeIdField || fieldNames.indexOf(nodeIdField) < 0) mappingConfirmed = false;
         refreshSetupState();
 
-        if (configuredApiBase && configuredApiBase !== appSettings.apiBaseUrl) {
-            appSettings.apiBaseUrl = configuredApiBase;
+        var nextApiBase = DeepPipe.normalizeApiBaseUrl(
+                    savedServiceSettings ? savedServiceSettings.api_base_url : configuredApiBase) || defaultApiBaseUrl;
+        var nextPassApiBase = DeepPipe.normalizeApiBaseUrl(
+                    savedServiceSettings ? savedServiceSettings.pypass_api_base_url : configuredPassApiBase) || defaultPassApiBaseUrl;
+        var nextCogUrl = String(savedServiceSettings
+                                ? savedServiceSettings.remote_cog_url
+                                : configuredCogUrl || "").trim();
+        var nextCogName = String(savedServiceSettings
+                                 ? savedServiceSettings.remote_cog_layer_name
+                                 : configuredCogName || "DeepPipe Remote COG").trim() || "DeepPipe Remote COG";
+        if (nextApiBase !== appSettings.apiBaseUrl) {
             apiConnectionStatus = "unknown";
             apiConnectionMessage = "Not checked";
         }
-        if (!appSettings.apiBaseUrl) appSettings.apiBaseUrl = defaultApiBaseUrl;
+        appSettings.apiBaseUrl = nextApiBase;
+        appSettings.passApiBaseUrl = nextPassApiBase;
+        appSettings.remoteCogUrl = nextCogUrl;
+        appSettings.remoteCogLayerName = nextCogName;
         if (!appSettings.apiModeInitialized) {
             if (configuredApiMode === "live") appSettings.useLiveApi = true;
             if (configuredApiMode === "mock") appSettings.useLiveApi = false;
@@ -439,12 +539,14 @@ Item {
             selectedFids = [];
             selectedPoints = [];
             removePredictionLayer();
+            removeManagedRasterLayers();
             assessmentLatitude = NaN;
             assessmentLongitude = NaN;
             assessmentLocationMethod = "";
             assessmentLocationLabel = "No location selected";
             assessmentResult = null;
             assessmentStatus = "idle";
+            assessmentMessage = "Choose a map or GNSS location.";
             restorePendingJob();
         }
     }
@@ -595,6 +697,7 @@ Item {
             toast(setupMessage);
             return;
         }
+        if (!ensurePointHandlerRegistered(true)) return;
         syncFromNativeSelection();
         interactionMode = "select_inlets";
         inletSelectionMode = "tap";
@@ -620,6 +723,29 @@ Item {
               : "Tap an inlet to add or remove it.");
     }
 
+    function mapRectangleFromScreenBounds(left, top, right, bottom) {
+        if (!mapCanvas) return null;
+        var corners = [
+            mapCanvas.mapSettings.screenToCoordinate(Qt.point(left, top)),
+            mapCanvas.mapSettings.screenToCoordinate(Qt.point(right, top)),
+            mapCanvas.mapSettings.screenToCoordinate(Qt.point(right, bottom)),
+            mapCanvas.mapSettings.screenToCoordinate(Qt.point(left, bottom))
+        ];
+        var minimumX = Number.POSITIVE_INFINITY;
+        var minimumY = Number.POSITIVE_INFINITY;
+        var maximumX = Number.NEGATIVE_INFINITY;
+        var maximumY = Number.NEGATIVE_INFINITY;
+        corners.forEach(function (corner) {
+            minimumX = Math.min(minimumX, Number(corner.x));
+            minimumY = Math.min(minimumY, Number(corner.y));
+            maximumX = Math.max(maximumX, Number(corner.x));
+            maximumY = Math.max(maximumY, Number(corner.y));
+        });
+        return GeometryUtils.createRectangleFromPoints(
+                    Qt.point(minimumX, minimumY),
+                    Qt.point(maximumX, maximumY));
+    }
+
     function recordsInScreenRectangle(startPoint, endPoint) {
         var records = [];
         if (!inletLayer || !mapCanvas) return records;
@@ -627,9 +753,7 @@ Item {
         var right = Math.max(Number(startPoint.x), Number(endPoint.x));
         var top = Math.min(Number(startPoint.y), Number(endPoint.y));
         var bottom = Math.max(Number(startPoint.y), Number(endPoint.y));
-        var topLeft = mapCanvas.mapSettings.screenToCoordinate(Qt.point(left, top));
-        var bottomRight = mapCanvas.mapSettings.screenToCoordinate(Qt.point(right, bottom));
-        var rectangle = GeometryUtils.createRectangleFromPoints(topLeft, bottomRight);
+        var rectangle = mapRectangleFromScreenBounds(left, top, right, bottom);
         var layerRectangle = GeometryUtils.reprojectRectangle(
                     rectangle,
                     mapCanvas.mapSettings.destinationCrs,
@@ -681,9 +805,11 @@ Item {
         lastMapTapMs = now;
 
         var tolerance = 16;
-        var topLeft = mapCanvas.mapSettings.screenToCoordinate(Qt.point(screenPoint.x - tolerance, screenPoint.y - tolerance));
-        var bottomRight = mapCanvas.mapSettings.screenToCoordinate(Qt.point(screenPoint.x + tolerance, screenPoint.y + tolerance));
-        var rectangle = GeometryUtils.createRectangleFromPoints(topLeft, bottomRight);
+        var rectangle = mapRectangleFromScreenBounds(
+                    screenPoint.x - tolerance,
+                    screenPoint.y - tolerance,
+                    screenPoint.x + tolerance,
+                    screenPoint.y + tolerance);
         var layerRectangle = GeometryUtils.reprojectRectangle(
                     rectangle,
                     mapCanvas.mapSettings.destinationCrs,
@@ -722,6 +848,7 @@ Item {
             toast("Open a QField project first.");
             return;
         }
+        if (!ensurePointHandlerRegistered(true)) return;
         interactionMode = "assessment_location";
         panelDrawer.close();
         toast("Tap the map at the assessment location.");
@@ -735,6 +862,7 @@ Item {
                 assessmentLatitude.toFixed(6) + ", " + assessmentLongitude.toFixed(6);
         assessmentResult = null;
         assessmentStatus = "ready";
+        assessmentMessage = "Location ready for live PyPASS assessment.";
     }
 
     function handleAssessmentMapTap(screenPoint) {
@@ -759,25 +887,334 @@ Item {
         setAssessmentLocation(information.latitude, information.longitude, "GNSS");
     }
 
-    function runMockAssessment() {
-        assessmentStatus = "running";
-        var result = DeepPipe.buildMockAssessment(assessmentLatitude, assessmentLongitude, 16);
-        if (!result.ok) {
+    function runLiveAssessment() {
+        if (activeRequest) {
             assessmentStatus = "failed";
-            assessmentResult = null;
-            toast(result.error);
+            assessmentMessage = "Wait for the current DeepPipe network request to finish.";
+            toast(assessmentMessage);
             return;
         }
-        assessmentResult = result;
-        assessmentStatus = "succeeded";
+        if (!Number.isFinite(assessmentLatitude) || assessmentLatitude < -90 || assessmentLatitude > 90 ||
+                !Number.isFinite(assessmentLongitude) || assessmentLongitude < -180 || assessmentLongitude > 180) {
+            assessmentStatus = "failed";
+            assessmentMessage = "Choose a valid map or GNSS location before assessment.";
+            toast(assessmentMessage);
+            return;
+        }
+        if (!Number.isFinite(assessmentNominalDiameter) || assessmentNominalDiameter <= 0) {
+            assessmentStatus = "failed";
+            assessmentMessage = "Enter a cast-iron nominal diameter greater than zero.";
+            toast(assessmentMessage);
+            return;
+        }
+        if (!DeepPipe.normalizeApiBaseUrl(appSettings.passApiBaseUrl)) {
+            assessmentStatus = "failed";
+            assessmentMessage = "Enter a valid PyPASS API URL in Setup.";
+            toast(assessmentMessage);
+            return;
+        }
+        assessmentStatus = "running";
+        assessmentMessage = "Querying live soil properties and service-life estimates…";
+        assessmentResult = null;
+        var body = {
+            latitude: Number(assessmentLatitude),
+            longitude: Number(assessmentLongitude),
+            nominal_diameter_cast_iron: Number(assessmentNominalDiameter),
+            location_id: "qfield-" + DeepPipe.safeFilePart(projectName, "project")
+        };
+        sendApiRequestTo(appSettings.passApiBaseUrl, "POST", "/api/pypass/service-life", body, 60000,
+                         function (ok, payload, status, message) {
+            if (!ok) {
+                assessmentStatus = "failed";
+                assessmentMessage = message || "PyPASS assessment failed.";
+                toast(assessmentMessage);
+                return;
+            }
+            var result = DeepPipe.normalizeLiveAssessment(payload, assessmentGauge);
+            if (!result.ok) {
+                assessmentStatus = "failed";
+                assessmentMessage = "PyPASS returned an incomplete location response.";
+                toast(assessmentMessage);
+                return;
+            }
+            assessmentResult = result;
+            assessmentStatus = "succeeded";
+            assessmentMessage = result.warnings.length > 0
+                    ? "Assessment completed with " + result.warnings.length + " data-coverage warning" + (result.warnings.length === 1 ? "." : "s.")
+                    : "Live PyPASS assessment completed.";
+            toast(assessmentMessage);
+        });
+    }
+
+    function setAssessmentInputs(nominalDiameter, gauge, materialId, minimumYears) {
+        var diameter = Number(nominalDiameter);
+        if (Number.isFinite(diameter) && diameter > 0) assessmentNominalDiameter = diameter;
+        var nextGauge = Math.round(Number(gauge));
+        if ([8, 10, 12, 14, 16, 18].indexOf(nextGauge) >= 0) assessmentGauge = nextGauge;
+        assessmentMaterialId = DeepPipe.passMaterialById(materialId).id;
+        assessmentMinimumYears = Math.max(0, Math.round(Number(minimumYears) || 0));
+        assessmentResult = null;
+        if (assessmentStatus === "succeeded") assessmentStatus = "ready";
+    }
+
+    function setPassApiBaseUrl(value) {
+        if (activeRequest) {
+            toast("Wait for the current DeepPipe request before changing the PyPASS URL.");
+            return;
+        }
+        var normalized = DeepPipe.normalizeApiBaseUrl(value);
+        if (!normalized) {
+            toast("Enter a complete PyPASS API URL beginning with https:// or http://.");
+            return;
+        }
+        appSettings.passApiBaseUrl = normalized;
+        saveCurrentProjectServiceSettings();
+    }
+
+    function setRemoteCogConfiguration(url, layerName) {
+        appSettings.remoteCogUrl = String(url || "").trim();
+        appSettings.remoteCogLayerName = String(layerName || "DeepPipe Remote COG").trim() || "DeepPipe Remote COG";
+        saveCurrentProjectServiceSettings();
+    }
+
+    function addManagedRasterLayer(uri, layerName, provider, opacity) {
+        if (!qgisProject || !uri) {
+            rasterStatus = "failed";
+            rasterMessage = "Open a project and provide a valid raster source.";
+            toast(rasterMessage);
+            return false;
+        }
+        var names = managedRasterLayerNames.slice();
+        var layers = managedRasterLayers.slice();
+        var existingIndex = names.indexOf(String(layerName));
+        if (existingIndex >= 0) {
+            ProjectUtils.removeMapLayer(qgisProject, layers[existingIndex]);
+            names.splice(existingIndex, 1);
+            layers.splice(existingIndex, 1);
+            managedRasterLayers = layers.slice();
+            managedRasterLayerNames = names.slice();
+        }
+        var layer = LayerUtils.loadRasterLayer(String(uri), String(layerName), String(provider || "gdal"));
+        if (!layer || !layer.isValid || !ProjectUtils.addMapLayer(qgisProject, layer)) {
+            rasterStatus = "failed";
+            rasterMessage = "QField could not open '" + layerName + "'. Check the URL, TLS access, and raster format.";
+            toast(rasterMessage);
+            return false;
+        }
+        layer.opacity = Math.max(0.15, Math.min(1.0, Number(opacity || 0.78)));
+        layers.push(layer);
+        names.push(String(layerName));
+        managedRasterLayers = layers;
+        managedRasterLayerNames = names;
+        rasterStatus = "succeeded";
+        rasterMessage = "Added " + layerName + " to the current map.";
+        toast(rasterMessage);
+        return true;
+    }
+
+    function addXyzRasterFromTemplate(template, layerName) {
+        var fullUrl = DeepPipe.resolveCatalogUrl(appSettings.passApiBaseUrl, template);
+        var uri = DeepPipe.xyzRasterUri(fullUrl, 7, 19);
+        return addManagedRasterLayer(uri, layerName, "wms", 0.78);
+    }
+
+    function addPassVariableRaster(variableId, fallbackName) {
+        if (activeRequest) {
+            toast("Wait for the current DeepPipe request before adding a raster.");
+            return;
+        }
+        rasterStatus = "loading";
+        rasterMessage = "Reading the live PyPASS raster catalog…";
+        sendApiRequestTo(appSettings.passApiBaseUrl, "GET", "/api/pypass/variables", null, 30000,
+                         function (ok, payload, status, message) {
+            var variables = ok && Array.isArray(payload)
+                    ? payload
+                    : (ok && payload && Array.isArray(payload.variables) ? payload.variables : []);
+            var variable = variables.find(function (item) { return String(item && item.id) === String(variableId); });
+            var tilePath = variable && variable.tile_url
+                    ? String(variable.tile_url)
+                    : DeepPipe.passVariableTilePath(variableId);
+            var layerName = "PyPASS " + String(variable && variable.name || fallbackName || variableId);
+            if (!tilePath || !addXyzRasterFromTemplate(tilePath, layerName)) {
+                rasterStatus = "failed";
+                rasterMessage = message || "The PyPASS raster catalog did not provide a usable tile URL.";
+            }
+        });
+    }
+
+    function addPassServiceLifeRaster() {
+        if (activeRequest) {
+            toast("Wait for the current DeepPipe request before adding a raster.");
+            return;
+        }
+        var material = DeepPipe.passMaterialById(assessmentMaterialId);
+        rasterStatus = "loading";
+        rasterMessage = "Reading live PyPASS service-life layer options…";
+        sendApiRequestTo(appSettings.passApiBaseUrl, "GET", "/api/pypass/service-life-layer/options", null, 30000,
+                         function (ok, payload, status, message) {
+            var template = ok && payload && payload.tile_url
+                    ? String(payload.tile_url)
+                    : "/api/pypass/service-life-tiles/{material_id}/{z}/{x}/{y}.png";
+            template = template.replace("{material_id}", encodeURIComponent(material.id));
+            var gaugeSelection = DeepPipe.passRasterGauge(
+                        material.id,
+                        assessmentGauge,
+                        ok && payload && Array.isArray(payload.materials) ? payload.materials : []);
+            var query = "min_years=" + Math.max(0, assessmentMinimumYears);
+            if (gaugeSelection.requiresGauge) query += "&gauge=" + gaugeSelection.gauge;
+            template = DeepPipe.appendUrlQuery(template, query);
+            var layerName = "PyPASS " + material.name + " ≥ " + assessmentMinimumYears + " yr" +
+                    (gaugeSelection.requiresGauge ? " · gauge " + gaugeSelection.gauge : "");
+            if (!addXyzRasterFromTemplate(template, layerName)) {
+                rasterStatus = "failed";
+                rasterMessage = message || "The service-life raster could not be added.";
+                return;
+            }
+            if (gaugeSelection.adjusted) {
+                rasterMessage = "Added " + layerName + ". Gauge " + gaugeSelection.requestedGauge +
+                        " is unavailable for " + material.name + "; the catalog default gauge " +
+                        gaugeSelection.gauge + " was used.";
+                toast(rasterMessage);
+            }
+        });
+    }
+
+    function addConfiguredRemoteCog() {
+        var url = DeepPipe.normalizeRemoteRasterUrl(appSettings.remoteCogUrl);
+        if (!url) {
+            rasterStatus = "failed";
+            rasterMessage = "Enter the direct public HTTPS URL of a COG/GeoTIFF first.";
+            toast(rasterMessage);
+            return;
+        }
+        addManagedRasterLayer(
+                    DeepPipe.gdalRemoteRasterUri(url),
+                    appSettings.remoteCogLayerName,
+                    "gdal",
+                    0.78);
+    }
+
+    function removeManagedRasterLayers() {
+        if (qgisProject) {
+            (Array.isArray(managedRasterLayers) ? managedRasterLayers : []).forEach(function (layer) {
+                if (layer) ProjectUtils.removeMapLayer(qgisProject, layer);
+            });
+        }
+        managedRasterLayers = [];
+        managedRasterLayerNames = [];
+        rasterStatus = "idle";
+        rasterMessage = "No PyPASS or COG raster has been added by the plugin.";
     }
 
     function removePredictionLayer() {
-        if (predictionResultLayer && qgisProject) {
-            ProjectUtils.removeMapLayer(qgisProject, predictionResultLayer);
+        if (qgisProject) {
+            var layers = Array.isArray(predictionResultLayers) ? predictionResultLayers : [];
+            layers.forEach(function (layer) {
+                if (layer) ProjectUtils.removeMapLayer(qgisProject, layer);
+            });
+            if (layers.length === 0 && predictionResultLayer) {
+                ProjectUtils.removeMapLayer(qgisProject, predictionResultLayer);
+            }
         }
         predictionResultLayer = null;
+        predictionResultLayers = [];
+        predictionExportGeoJson = "";
+        predictionExportCrs = null;
         predictionResultLayerName = "";
+        lastPredictionExportPath = "";
+        lastCompletedJobId = "";
+    }
+
+    function createPredictionResultLayers(featureCollection, crs, baseName, threshold) {
+        removePredictionLayer();
+        if (!featureCollection || !Array.isArray(featureCollection.features) || featureCollection.features.length === 0) {
+            return false;
+        }
+
+        var partitions = DeepPipe.partitionPredictionResults(featureCollection, threshold);
+        var decoratedCollection = {
+            type: "FeatureCollection",
+            crs: featureCollection.crs,
+            features: partitions.predicted.features
+                      .concat(partitions.potential.features)
+                      .concat(partitions.unknown.features)
+        };
+
+        var specifications = [
+            { suffix: "Predicted", collection: partitions.predicted, opacity: 1.0 },
+            { suffix: "Potential", collection: partitions.potential, opacity: 0.42 },
+            { suffix: "Unknown", collection: partitions.unknown, opacity: 0.68 }
+        ];
+        var addedLayers = [];
+        var addedNames = [];
+        for (var index = 0; index < specifications.length; index += 1) {
+            var specification = specifications[index];
+            if (!specification.collection || specification.collection.features.length === 0) continue;
+            var layerName = String(baseName) + " · " + specification.suffix;
+            var layer = LayerUtils.memoryLayerFromJsonString(
+                        layerName,
+                        JSON.stringify(specification.collection),
+                        crs);
+            if (!layer || !layer.isValid || !ProjectUtils.addMapLayer(qgisProject, layer)) {
+                addedLayers.forEach(function (addedLayer) {
+                    ProjectUtils.removeMapLayer(qgisProject, addedLayer);
+                });
+                return false;
+            }
+            layer.opacity = specification.opacity;
+            addedLayers.push(layer);
+            addedNames.push(layerName);
+        }
+        if (addedLayers.length === 0) return false;
+
+        predictionExportGeoJson = JSON.stringify(decoratedCollection);
+        predictionExportCrs = crs;
+        predictionResultLayers = addedLayers;
+        predictionResultLayer = addedLayers[0];
+        predictionResultLayerName = addedNames.join(" + ");
+        return true;
+    }
+
+    function exportPredictionResult() {
+        if (!predictionExportGeoJson || !predictionExportCrs || !qgisProject) {
+            toast("There is no prediction result to export.");
+            return;
+        }
+        var baseFolder = String(qgisProject.homePath || "");
+        if (!baseFolder) baseFolder = String(StandardPaths.writableLocation(StandardPaths.DocumentsLocation) || "");
+        if (!baseFolder) {
+            toast("QField could not find a writable export folder on this device.");
+            return;
+        }
+        var filePart = DeepPipe.safeFilePart(lastCompletedJobId, "result-" + Date.now());
+        var requestedPath = baseFolder + "/DeepPipe_prediction_" + filePart + ".geojson";
+        var exportLayer = LayerUtils.memoryLayerFromJsonString(
+                    "DeepPipe export " + filePart,
+                    predictionExportGeoJson,
+                    predictionExportCrs);
+        if (!exportLayer || !exportLayer.isValid || !ProjectUtils.addMapLayer(qgisProject, exportLayer)) {
+            toast("QField could not prepare the combined prediction result for export.");
+            return;
+        }
+        exportLayer.opacity = 0;
+        var savedPath = LayerUtils.saveVectorLayerAs(exportLayer, requestedPath, "GeoJSON", "");
+        ProjectUtils.removeMapLayer(qgisProject, exportLayer);
+        if (!savedPath) {
+            toast("The prediction result could not be saved. Check project-folder write access.");
+            return;
+        }
+        lastPredictionExportPath = String(savedPath);
+        toast("Prediction result saved as GeoJSON.");
+    }
+
+    function sharePredictionExport() {
+        if (!lastPredictionExportPath) return;
+        if (typeof platformUtilities !== "undefined" && platformUtilities &&
+                typeof platformUtilities.sendDatasetTo === "function") {
+            platformUtilities.sendDatasetTo(lastPredictionExportPath);
+            return;
+        }
+        toast("The GeoJSON is saved at " + lastPredictionExportPath);
     }
 
     function scheduleJobPoll(delayMs) {
@@ -855,7 +1292,11 @@ Item {
     }
 
     function pollActiveJob() {
-        if (!activeJobId || activeRequest) return;
+        if (!activeJobId) return;
+        if (activeRequest) {
+            scheduleJobPoll(1500);
+            return;
+        }
         if ((activeJobProjectKey && activeJobProjectKey !== currentProjectKey) ||
                 (!activeJobProjectKey && activeJobProjectName && activeJobProjectName !== projectName)) {
             predictionStatus = "queued";
@@ -905,7 +1346,8 @@ Item {
                 scheduleJobPoll(12000);
                 return;
             }
-            var filename = DeepPipe.choosePipeResultFilename(payload && payload.files);
+            var filename = DeepPipe.choosePipeResultFilename(
+                        payload && payload.files !== undefined ? payload.files : payload);
             if (!filename) {
                 predictionMessage = "Job completed, but no pipe GeoJSON is available yet.";
                 scheduleJobPoll(12000);
@@ -932,7 +1374,7 @@ Item {
                 return;
             }
 
-            var result = DeepPipe.decorateLiveResult(payload, jobId);
+            var result = DeepPipe.decorateLiveResult(payload, jobId, activeJobThreshold);
             var summary = DeepPipe.summarizeLiveResult(result, activeJobSelectedCount, activeJobThreshold);
             removePredictionLayer();
             if (result.features.length === 0) {
@@ -945,19 +1387,18 @@ Item {
             }
 
             var layerName = "DeepPipe Pipes " + jobId;
-            var layer = LayerUtils.memoryLayerFromJsonString(
+            if (!createPredictionResultLayers(
+                        result,
+                        CoordinateReferenceSystemUtils.wgs84Crs(),
                         layerName,
-                        JSON.stringify(result),
-                        CoordinateReferenceSystemUtils.wgs84Crs());
-            if (!layer || !ProjectUtils.addMapLayer(qgisProject, layer)) {
+                        activeJobThreshold)) {
                 predictionStatus = "fetching";
                 predictionMessage = "The live result was downloaded but could not be added to the map. The job ID remains saved for retry.";
                 scheduleJobPoll(20000);
                 return;
             }
 
-            predictionResultLayer = layer;
-            predictionResultLayerName = layerName;
+            lastCompletedJobId = jobId;
             predictionSummary = summary;
             predictionStatus = "succeeded";
             predictionMessage = "Live API job " + jobId + " added " + result.features.length + " threshold-filtered pipe" + (result.features.length === 1 ? "" : "s") + " to the map.";
@@ -1026,18 +1467,17 @@ Item {
         }
 
         var layerName = "DeepPipe Mock " + activeMockJobId;
-        var layer = LayerUtils.memoryLayerFromJsonString(
+        if (!createPredictionResultLayers(
+                    result.featureCollection,
+                    inletLayer.crs,
                     layerName,
-                    JSON.stringify(result.featureCollection),
-                    inletLayer.crs);
-        if (!layer || !ProjectUtils.addMapLayer(qgisProject, layer)) {
+                    predictionConfig.classification_threshold)) {
             predictionStatus = "failed";
             predictionMessage = "The preview was generated but could not be added to the map.";
             return;
         }
 
-        predictionResultLayer = layer;
-        predictionResultLayerName = layerName;
+        lastCompletedJobId = activeMockJobId;
         predictionSummary = result.summary;
         predictionStatus = "succeeded";
         predictionMessage = "Deterministic mock network added to the map. No production model was called.";
@@ -1048,6 +1488,7 @@ Item {
         target: iface
 
         function onLoadProjectEnded(path, name) {
+            ensurePointHandlerRegistered(false);
             loadProjectConfiguration(true);
         }
 
@@ -1058,6 +1499,7 @@ Item {
             jobPollTimer.stop();
             abandonActiveRequest();
             removePredictionLayer();
+            removeManagedRasterLayers();
             selectedFids = [];
             selectedPoints = [];
             inletLayer = null;
@@ -1157,15 +1599,27 @@ Item {
             predictionMessage: plugin.predictionMessage
             predictionSummary: plugin.predictionSummary
             predictionResultLayer: plugin.predictionResultLayerName
+            predictionExportPath: plugin.lastPredictionExportPath
             maxSearchRadius: plugin.predictionConfig.max_search_radius
             confidenceThreshold: plugin.predictionConfig.classification_threshold
             assessmentLocationLabel: plugin.assessmentLocationLabel
             assessmentStatus: plugin.assessmentStatus
+            assessmentMessage: plugin.assessmentMessage
             assessmentResult: plugin.assessmentResult
+            assessmentNominalDiameter: plugin.assessmentNominalDiameter
+            assessmentGauge: plugin.assessmentGauge
+            assessmentMaterialId: plugin.assessmentMaterialId
+            assessmentMinimumYears: plugin.assessmentMinimumYears
             mockMode: !appSettings.useLiveApi
             apiBaseUrl: appSettings.apiBaseUrl
             apiConnectionStatus: plugin.apiConnectionStatus
             apiConnectionMessage: plugin.apiConnectionMessage
+            passApiBaseUrl: appSettings.passApiBaseUrl
+            remoteCogUrl: appSettings.remoteCogUrl
+            remoteCogLayerName: appSettings.remoteCogLayerName
+            rasterStatus: plugin.rasterStatus
+            rasterMessage: plugin.rasterMessage
+            rasterLayerNames: plugin.managedRasterLayerNames
             activeJobId: plugin.activeJobId
             pluginVersion: plugin.pluginVersion
 
@@ -1187,10 +1641,23 @@ Item {
             onRunPredictionRequested: plugin.startPrediction()
             onCancelPredictionRequested: plugin.cancelLivePrediction()
             onRemovePredictionLayerRequested: plugin.removePredictionLayer()
+            onExportPredictionRequested: plugin.exportPredictionResult()
+            onSharePredictionExportRequested: plugin.sharePredictionExport()
             onPickAssessmentLocationRequested: plugin.startAssessmentLocationSelection()
             onUseGnssRequested: plugin.useCurrentGnssLocation()
-            onRunAssessmentRequested: plugin.runMockAssessment()
+            onAssessmentInputsRequested: function (diameter, gauge, materialId, minimumYears) {
+                plugin.setAssessmentInputs(diameter, gauge, materialId, minimumYears);
+            }
+            onRunAssessmentRequested: plugin.runLiveAssessment()
+            onAddPassVariableRasterRequested: function (variableId, name) {
+                plugin.addPassVariableRaster(variableId, name);
+            }
+            onAddPassServiceLifeRasterRequested: plugin.addPassServiceLifeRaster()
+            onAddRemoteCogRequested: plugin.addConfiguredRemoteCog()
+            onRemoveRasterLayersRequested: plugin.removeManagedRasterLayers()
             onApiBaseUrlRequested: function (value) { plugin.setApiBaseUrl(value); }
+            onPassApiBaseUrlRequested: function (value) { plugin.setPassApiBaseUrl(value); }
+            onRemoteCogConfigurationRequested: function (url, name) { plugin.setRemoteCogConfiguration(url, name); }
             onApiModeRequested: function (enabled) { plugin.setLiveApiEnabled(enabled); }
             onTestApiRequested: plugin.testApiConnection()
         }
@@ -1362,21 +1829,9 @@ Item {
 
     Component.onCompleted: {
         if (!appSettings.apiBaseUrl) appSettings.apiBaseUrl = defaultApiBaseUrl;
+        if (!appSettings.passApiBaseUrl) appSettings.passApiBaseUrl = defaultPassApiBaseUrl;
         iface.addItemToPluginsToolbar(pluginButton);
-        if (pointHandler) {
-            pointHandler.registerHandler("deeppipe_mobile_interactions", function (point, type, interactionType) {
-                if (interactionType !== "clicked") return false;
-                if (plugin.interactionMode === "select_inlets") {
-                    return plugin.handleInletMapTap(point);
-                }
-                if (plugin.interactionMode === "assessment_location") {
-                    return plugin.handleAssessmentMapTap(point);
-                }
-                return false;
-            }, MapCanvasPointHandler.Priority.High);
-        } else {
-            iface.logMessage("DeepPipe Mobile could not find QField's map point handler.");
-        }
+        ensurePointHandlerRegistered(false);
         loadProjectConfiguration(true);
     }
 
@@ -1384,7 +1839,9 @@ Item {
         mockPredictionTimer.stop();
         jobPollTimer.stop();
         abandonActiveRequest();
-        if (pointHandler) pointHandler.deregisterHandler("deeppipe_mobile_interactions");
+        if (pointHandlerRegistered && pointHandler) pointHandler.deregisterHandler("deeppipe_mobile_interactions");
+        pointHandlerRegistered = false;
         removePredictionLayer();
+        removeManagedRasterLayers();
     }
 }
