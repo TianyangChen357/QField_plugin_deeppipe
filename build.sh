@@ -10,15 +10,17 @@ if [[ -z "$VERSION" ]]; then
   exit 1
 fi
 PLUGIN_ZIP="$DIST_DIR/deeppipe-mobile-v${VERSION}.zip"
+LATEST_PLUGIN_ZIP="$DIST_DIR/deeppipe-mobile-latest.zip"
 BUNDLE_ZIP="$DIST_DIR/DeepPipe_QField_API_Test_v${VERSION}.zip"
 
 mkdir -p "$DIST_DIR"
-rm -f "$PLUGIN_ZIP" "$BUNDLE_ZIP"
+rm -f "$PLUGIN_ZIP" "$LATEST_PLUGIN_ZIP" "$BUNDLE_ZIP"
 
 (
   cd "$PLUGIN_SOURCE"
   zip -q -r "$PLUGIN_ZIP" . -x "*.DS_Store" "__MACOSX/*"
 )
+cp "$PLUGIN_ZIP" "$LATEST_PLUGIN_ZIP"
 
 STAGING_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGING_DIR"' EXIT
@@ -38,6 +40,7 @@ cp "$SCRIPT_DIR/tests/test_api_contract.mjs" "$STAGING_DIR/tests/test_api_contra
 )
 
 unzip -tq "$PLUGIN_ZIP" >/dev/null
+unzip -tq "$LATEST_PLUGIN_ZIP" >/dev/null
 unzip -tq "$BUNDLE_ZIP" >/dev/null
 
-printf '%s\n' "$PLUGIN_ZIP" "$BUNDLE_ZIP"
+printf '%s\n' "$PLUGIN_ZIP" "$LATEST_PLUGIN_ZIP" "$BUNDLE_ZIP"
