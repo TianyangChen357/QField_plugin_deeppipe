@@ -1,6 +1,7 @@
-# DeepPipe Mobile API contract — 0.3.0
+# DeepPipe Mobile API contract — 0.4.0
 
-Checked against `https://lab.yyworkshop.com/predapi/openapi.json` on 2026-07-31.
+Prediction was checked against `https://lab.yyworkshop.com/predapi/openapi.json`
+on 2026-07-31. PyPASS endpoints were checked live on 2026-08-04.
 
 ## Health
 
@@ -89,7 +90,7 @@ Expected status shape:
 
 Terminal statuses handled by the client are `succeeded`, `failed`, and `cancelled`. On success, `/files` must identify a pipe-named GeoJSON; the client will not fall back to `Structures.geojson`. The downloaded pipe FeatureCollection is returned in EPSG:4326 and is loaded with an explicit WGS84 CRS.
 
-The backend writes only pipes that meet `classification_threshold`; therefore the client cannot calculate the number of below-threshold potential pipes.
+The backend currently writes only pipes that meet `classification_threshold`; therefore the client cannot calculate the number of below-threshold potential pipes. To match the deployed portal, the client normalizes outcomes in this order when fields are present: final `class`, `is_connect`, `prob`/`probability`/`score` compared with the submitted threshold, explicit outcome aliases, then `model_class` as a last fallback. The stable export fields are `deeppipe_outcome` and `deeppipe_color`.
 
 ## Error shapes
 
@@ -121,6 +122,50 @@ The client also handles string `detail`, queue-unavailable 503, malformed/empty 
 4. Replace the basic health check with readiness that verifies the queue, worker, models, and county factor coverage.
 5. Define a stable response/error schema in OpenAPI instead of `{}` for successful job operations.
 
-## Assessment boundary
+## Live PyPASS point assessment
 
-Assessment remains mock-only in 0.3.0. No PyPASS request is issued, and no live Prediction job should be interpreted as a service-life assessment or material recommendation.
+PyPASS uses a separate origin from Prediction. The default is
+`https://lab.yyworkshop.com`.
+
+```http
+POST /api/pypass/service-life
+Content-Type: application/json
+```
+
+```json
+{
+  "latitude": 34.2104,
+  "longitude": -77.8868,
+  "nominal_diameter_cast_iron": 16,
+  "location_id": "qfield-demo"
+}
+```
+
+The response contains `location`, nullable `soil` values, fixed-material
+estimates, six gauge rows, and optional `warnings`. Null pH, resistivity,
+chloride, or material estimates mean unavailable coverage and must remain
+unavailable in the UI; they must never be converted to zero.
+
+PyPASS provides service-life comparison only. The plugin must not label a
+material as recommended until engineering, cost, and selection criteria are
+defined and implemented.
+
+## Raster catalogs
+
+```http
+GET /api/pypass/variables
+GET /api/pypass/service-life-layer/options
+```
+
+The plugin resolves root-relative `tile_url` templates against the PyPASS
+origin and loads them through QGIS's XYZ/WMS provider. Soil and service-life
+tile routes are used by the live frontend but are not yet documented in the
+current OpenAPI document, so the catalog response is preferred over a hard-coded
+template and the backend should add these routes to OpenAPI. Gauge values are
+validated against each catalog material's `gauge_sizes`; an unsupported value
+falls back to that material's advertised `default_gauge` and is reported in the
+plugin status.
+
+The current catalog exposes no raw COG URL. A direct remote COG can be loaded
+only when the user or project supplies its public HTTPS object URL and the host
+supports byte-range requests.

@@ -1,4 +1,4 @@
-# DeepPipe Mobile 0.3.0 test matrix
+# DeepPipe Mobile 0.4.0 test matrix
 
 ## Baseline
 
@@ -14,14 +14,15 @@ Use only synthetic/non-sensitive inlets against the current unauthenticated test
 
 | Test | Expected |
 |---|---|
-| Install `deeppipe-mobile-v0.3.0.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
+| Install `deeppipe-mobile-v0.4.0.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
 | Open QField with no project | Toolbar/panel stay safe and report that a project must be opened. |
 | Open a plain project with no point layer | Setup explains that an inlet point layer is required; Assessment remains available once a map project is open. |
 | Open a plain project with one/multiple point layers | Setup suggests or lists point layers; user can choose a layer and ID field without editing project XML. |
 | Confirm setup, close, and reopen | The same project mapping is restored on this device. |
 | Open demo project | `Inlets` and `inlet_uuid` resolve from project defaults. |
 | Switch to another ordinary project | Selection/result state clears; the other project gets its own mapping; a server job is not silently cancelled. |
-| Open two same-title projects at different paths | Their mappings and pending jobs do not cross-contaminate. |
+| Open two same-title projects at different paths | Their mappings, API origins, remote COG configuration, and pending jobs do not cross-contaminate. |
+| Configure custom Prediction/PyPASS/COG values in project A, then open unconfigured project B | Project B uses the documented API defaults and a blank COG URL; no value from project A remains. Reopening A restores only A's local overrides. |
 | Rename/remove the configured field | Setup becomes actionable and blocks Prediction until a valid field is confirmed. |
 | Disable/re-enable plugin | No duplicate toolbar buttons or tap handlers after restart. |
 | Rotate with panel open | Drawer, selection bar, and action buttons remain usable. |
@@ -76,22 +77,38 @@ Test both EPSG:4326 and a projected North Carolina inlet layer. The current hit 
 | Weak/temporary network loss | Task ID remains saved; GET polling backs off and retries. |
 | Submit response timeout | Plugin does not auto-retry POST and explains duplicate-job risk. |
 | Cancel active task | Only the stored task ID is cancelled; terminal status is shown. |
-| Successful non-empty result | `Pipes.geojson` becomes WGS84 memory layer `DeepPipe Pipes <job-id>`. |
+| Successful non-empty result | `Pipes.geojson` becomes one or more WGS84 outcome layers named `DeepPipe Pipes <job-id> · Predicted`, `· Potential`, or `· Unknown`, depending on the returned features. |
 | Successful empty result | Success with 0 pipes; plugin does not try to create an empty memory layer. |
 | `Structures.geojson` exists but Pipes is missing | Plugin waits; it never loads Structures as a pipe layer. |
 | Remove result | Only the plugin-created memory layer disappears. |
+| Export result | Combined `DeepPipe_prediction_<job-id>.geojson` is written directly in the existing project folder (or device Documents fallback); geometry, CRS, outcome, and job fields survive a reload. |
+| Potential/unknown outcomes present | Separate lower-opacity layers appear and combined export retains `deeppipe_outcome`. |
 | API 400/422/404/500 | FastAPI message is readable; no duplicate submission is attempted. |
 
 Inspect a live pipe feature for `job_id=<task-id>`, `analysis_mode=live_api`, and `review_status=unreviewed`. The Potential summary must show `—`, because the API returns only threshold-filtered pipes.
 
-## Mock fallback and Assessment
+## Mock fallback
 
 | Test | Expected |
 |---|---|
 | Disable live Prediction API in Setup | Header shows MOCK; Predict becomes local Preview. |
 | Same mock inputs/settings | Same topology/probabilities each run. |
-| Assessment map point / GNSS | Location updates, then deterministic mock values appear. |
-| Inspect Assessment language | It clearly says mock/estimate and never claims a recommended material. |
+
+## Live PyPASS Assessment and raster review
+
+| Test | Expected |
+|---|---|
+| Wilmington controlled point | Live soil values and seven material rows are shown. |
+| Location with partial coverage | Null soil/material values display `Unavailable`; server warnings are visible. |
+| Change cast-iron diameter | A new query uses the entered positive diameter. |
+| Change gauge | Four gauge-dependent material rows use the selected gauge. |
+| Inspect language | Results are comparisons and never claim a recommended material. |
+| Add pH/resistivity/chloride | Catalog `tile_url` is resolved against the PyPASS origin and the XYZ layer appears. |
+| Add service-life layer | Material, threshold, and required gauge are reflected in the layer name and tile URL. |
+| Add Aluminum/Aluminized CSP with gauge 18 | Catalog validation uses the material's advertised default gauge and reports the adjustment instead of requesting invalid tiles. |
+| Add valid public COG | GDAL opens the URL through `/vsicurl/` without downloading the full file first. |
+| Invalid/offline COG | Plugin reports a readable failure and does not retain a stale layer entry. |
+| Project switch/plugin unload | Plugin-created raster layers are removed cleanly. |
 
 ## Record during device testing
 
@@ -106,6 +123,7 @@ Inspect a live pipe feature for `job_id=<task-id>`, `analysis_mode=live_api`, an
 - The current API advertises no authentication or task ownership. Do not use sensitive data.
 - `/health` proves only the web process responds; it is not a model/worker readiness guarantee.
 - Verify/fix server-side feet-based distance calculations for EPSG:4326 before interpreting model output.
-- Live layers are temporary; no GeoPackage write or QFieldCloud result sync yet.
+- Map layers are temporary; GeoJSON export is available, but no automatic GeoPackage/QFieldCloud result sync exists yet.
 - Interactive project mappings are local to one device. Put optional DeepPipe defaults in the QGIS project when every team device should receive the same mapping.
-- Assessment/PyPASS and soil rasters remain mock/unconnected.
+- The public PyPASS catalog currently publishes XYZ templates but no raw COG object URL.
+- Exact categorized colors require pre-styled production result layers; the app-wide QML fallback uses separate layers and opacity.

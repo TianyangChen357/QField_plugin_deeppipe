@@ -2,7 +2,9 @@
 
 ## Runtime mapping
 
-Version 0.3.0 can be used from any QField project containing a point layer and a stable unique ID field. The user chooses the layer and field in **Setup**, confirms them once, and the plugin stores that mapping in device-local settings keyed by project path and layer ID. The plugin does not modify or dirty the QGIS project.
+Version 0.4.0 can be used from any QField project containing a point layer and a stable unique ID field. The user chooses the layer and field in **Setup**, confirms them once, and the plugin stores that mapping in device-local settings keyed by the exact project path and layer ID. A title key is used only for a genuinely pathless project; two same-title project files do not share configuration. The plugin does not modify or dirty the QGIS project.
+
+Prediction/PyPASS origins and remote COG configuration entered in **Setup** are also stored locally per exact project. Optional project entries supply the initial defaults, while a local override remains confined to that project and cannot carry into another project.
 
 For multiple users and offline synchronization, the recommended key is a text UUID field (for example `inlet_uuid`) with default expression `uuid('WithoutBraces')`, “apply default on update” disabled, and non-null/unique constraints. Do not use a provider FID as the operational inlet identity.
 
@@ -21,6 +23,9 @@ Scope: `DeepPipe`
 | `prediction_result_layer` | String | Production | Persistent predicted-pipe layer role. |
 | `assessment_layer` | String | Production | Persistent assessment layer role. |
 | `api_base_url` | String | No | Prediction endpoint base; default test value `https://lab.yyworkshop.com/predapi`. Never store secrets here. |
+| `pypass_api_base_url` | String | No | PyPASS origin for point assessment and raster catalogs; default `https://lab.yyworkshop.com`. |
+| `remote_cog_url` | String | No | Direct public HTTPS COG/GeoTIFF URL. Leave empty when no raw object URL is published. |
+| `remote_cog_layer_name` | String | No | Display name for the optional remote COG layer. |
 | `api_mode` | String | No | Initial Prediction mode: `live` or `mock`. The app-wide user toggle is then retained. |
 
 Example project XML:
@@ -33,6 +38,9 @@ Example project XML:
     <inlet_layer type="QString">Inlets</inlet_layer>
     <node_id_field type="QString">inlet_uuid</node_id_field>
     <api_base_url type="QString">https://lab.yyworkshop.com/predapi</api_base_url>
+    <pypass_api_base_url type="QString">https://lab.yyworkshop.com</pypass_api_base_url>
+    <remote_cog_url type="QString"></remote_cog_url>
+    <remote_cog_layer_name type="QString">DeepPipe Remote COG</remote_cog_layer_name>
     <api_mode type="QString">live</api_mode>
   </DeepPipe>
 </properties>
@@ -68,6 +76,8 @@ At minimum:
 - `prob`, `model_class`, `class`
 - `length`, `slope`, `elev_diff`
 - `model_version`, `created_at`
+- `deeppipe_outcome`: predicted / potential / unknown
+- `deeppipe_color`: normalized display-color hint
 - `review_status`: unreviewed / accepted / rejected / needs_survey
 - `reviewed_by`, `reviewed_at`, `review_note`
 

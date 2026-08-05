@@ -1,15 +1,15 @@
-# DeepPipe Mobile QField plugin — API test 0.3.0
+# DeepPipe Mobile QField plugin — API test 0.4.0
 
 This app-wide QField plugin provides two touch-first field workflows:
 
 1. select inlet points directly from the active QField project and submit them to the DeepPipe Prediction API; and
 2. choose a map/GNSS location and exercise the pipe service-life Assessment interface.
 
-Version 0.3.0 connects **Prediction** to the configured live API and adds first-use setup for ordinary QField projects plus bulk map selection. **Assessment remains a deterministic mock** until the PyPASS service contract and raster deployment are ready.
+Version 0.4.0 connects **Prediction** and **PyPASS Assessment** to their live APIs, adds result export, separates returned outcome classes into display layers, and can add hosted PyPASS XYZ rasters or a user-supplied public COG/GeoTIFF URL.
 
 ## Install
 
-Install `deeppipe-mobile-v0.3.0.zip`. Its `main.qml` is at the ZIP root, as required for an app-wide QField plugin.
+Install `deeppipe-mobile-v0.4.0.zip`. Its `main.qml` is at the ZIP root, as required for an app-wide QField plugin.
 
 1. Host the ZIP at an HTTPS URL reachable by the phone.
 2. In QField, open **Settings → Plugins → Install plugin from URL**.
@@ -28,7 +28,7 @@ The plugin no longer requires a special DeepPipe project flag. In an ordinary pr
 3. Choose its stable unique ID field.
 4. Tap **Use this project setup**.
 
-That mapping is stored locally for the project on the current device. For team-wide defaults, these optional read-only project properties can prefill the same mapping:
+That mapping and any Prediction/PyPASS/COG overrides are stored locally for the exact project on the current device; they do not carry into another same-title project file. For team-wide defaults, these optional read-only project properties can prefill the setup:
 
 | Scope | Key | Example |
 |---|---|---|
@@ -36,6 +36,8 @@ That mapping is stored locally for the project on the current device. For team-w
 | `DeepPipe` | `inlet_layer` | `Inlets` |
 | `DeepPipe` | `node_id_field` | `inlet_uuid` |
 | `DeepPipe` | `api_base_url` | `https://lab.yyworkshop.com/predapi` |
+| `DeepPipe` | `pypass_api_base_url` | `https://lab.yyworkshop.com` |
+| `DeepPipe` | `remote_cog_url` | `https://example.org/service-life.tif` |
 | `DeepPipe` | `api_mode` | `live` |
 
 ## Live Prediction workflow
@@ -46,7 +48,7 @@ That mapping is stored locally for the project on the current device. For team-w
 4. Review maximum distance and confidence threshold.
 5. Tap **Predict pipes**.
 
-The plugin transforms selected points to EPSG:4326, sends a GeoJSON FeatureCollection to `POST /api/pred/pred_deep`, saves the returned task ID, polls status, downloads `Pipes.geojson`, and adds a temporary WGS84 result layer. A pending task resumes when the same project is reopened. Submission is never retried automatically after an ambiguous timeout, which avoids accidental duplicate jobs.
+The plugin transforms selected points to EPSG:4326, sends a GeoJSON FeatureCollection to `POST /api/pred/pred_deep`, saves the returned task ID, polls status, downloads `Pipes.geojson`, and adds temporary WGS84 outcome layers. It normalizes final `class`, `is_connect`, probability/score, explicit outcome aliases, or `model_class` (in that precedence order) into `deeppipe_outcome`; potential and unknown outcomes use separate lower-opacity layers. A combined `DeepPipe_prediction_<job-id>.geojson` file can be saved directly in the existing project folder, or in the device Documents folder when the project has no home path. A pending task resumes when the same project is reopened. Submission is never retried automatically after an ambiguous timeout, which avoids accidental duplicate jobs.
 
 Use **Setup → Test API connection** before the first submission. Setup also provides a mock fallback that makes no network call.
 
@@ -57,8 +59,10 @@ For multiple users or offline collection, configure a text UUID field with the Q
 - The configured API currently advertises no authentication. Do not send sensitive field data.
 - The API returns only threshold-filtered pipes, so the potential-pipe count is unavailable.
 - The current backend implementation must still be verified/fixed for feet-based distance handling when the phone submits EPSG:4326 coordinates. Treat live output as experimental review data, not an engineering determination.
-- Result layers are in-memory and disappear when the project closes.
+- Map result layers are in-memory and disappear when the project closes; use the GeoJSON export action to retain a copy.
 - Only the saved task ID is queried; the plugin never calls the global jobs list.
-- Assessment values remain `mock_preview` fixtures and are not PyPASS engineering estimates.
+- The deployed Prediction endpoint currently returns only threshold-filtered candidates, so live output may contain no potential layer.
+- PyPASS returns service-life comparisons, not a material recommendation.
+- Hosted soil/service-life rasters are loaded as XYZ layers. A raw COG requires a direct public HTTPS URL with byte-range support; the plugin ships no default COG URL.
 
 See the bundle-level `docs/TESTING.md` for the complete device test matrix.

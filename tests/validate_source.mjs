@@ -12,32 +12,55 @@ for (const required of ["main.qml", "metadata.txt", "icon.svg", "DeepPipePanel.q
 }
 
 const metadata = fs.readFileSync(path.join(pluginRoot, "metadata.txt"), "utf8");
-for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.3.0", "icon=icon.svg"]) {
+for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.4.0", "icon=icon.svg"]) {
   assert.equal(metadata.includes(expected), true, `metadata.txt lacks ${expected}`);
 }
 
 const main = fs.readFileSync(path.join(pluginRoot, "main.qml"), "utf8");
 for (const expected of [
   "iface.addItemToPluginsToolbar",
-  "pointHandler.registerHandler",
+  "handler.registerHandler",
   "LayerUtils.createFeatureIteratorFromRectangle",
   "LayerUtils.memoryLayerFromJsonString",
+  "LayerUtils.saveVectorLayerAs",
+  "LayerUtils.loadRasterLayer",
   "ProjectUtils.addMapLayer",
   "iface.createHttpRequest",
   "iface.findItemByObjectName(\"pointHandler\")",
   "CoordinateReferenceSystemUtils.wgs84Crs",
   "GeometryUtils.reprojectRectangle",
   "projectMappingsJson",
+  "projectServiceSettingsJson",
+  "DeepPipe.projectServiceSettings",
+  "DeepPipe.updateProjectServiceSettings",
   "qgisProject.fileName",
   "addInletsInScreenRectangle",
   "selectVisibleInlets",
   "/api/pred/pred_deep",
   "/api/jobs/jobs/",
+  "/api/pypass/service-life",
+  "/api/pypass/variables",
+  "ensurePointHandlerRegistered",
+  "mapRectangleFromScreenBounds",
+  "createPredictionResultLayers",
+  "addConfiguredRemoteCog",
+  "platformUtilities.sendDatasetTo",
 ]) {
   assert.equal(main.includes(expected), true, `main.qml lacks ${expected}`);
 }
 assert.equal(main.includes("readProjectBoolEntry"), false, "main.qml still hard-gates projects on DeepPipe/enabled");
 assert.equal(main.includes("Project setup required"), false, "main.qml retains the old non-actionable setup error");
+assert.equal(
+  main.includes("Boolean(handler.registerHandler"),
+  false,
+  "main.qml treats QField's void registerHandler() result as a Boolean",
+);
+assert.equal(
+  main.includes("/DeepPipe_exports/"),
+  false,
+  "main.qml exports into a child directory that the plugin does not create",
+);
+assert.equal(main.includes("MapCanvasPointHandler.Priority"), false, "main.qml references a QField-local QML type unavailable to app plugins");
 
 const panel = fs.readFileSync(path.join(pluginRoot, "DeepPipePanel.qml"), "utf8");
 for (const expected of [
@@ -46,13 +69,26 @@ for (const expected of [
   "uuid('WithoutBraces')",
   "Test API connection",
   "Cancel active prediction",
-  "Assessment remains mock",
+  "Save combined result as GeoJSON",
+  "Run live service-life assessment",
+  "Add remote COG to map",
 ]) {
   assert.equal(panel.includes(expected), true, `DeepPipePanel.qml lacks ${expected}`);
 }
 
 const logic = fs.readFileSync(path.join(pluginRoot, "logic/DeepPipe.js"), "utf8");
-for (const expected of ["featureCollectionFromPoints", "validateLiveSelectedPoints", "choosePipeResultFilename", "decorateLiveResult"]) {
+for (const expected of [
+  "featureCollectionFromPoints",
+  "validateLiveSelectedPoints",
+  "choosePipeResultFilename",
+  "decorateLiveResult",
+  "partitionPredictionResults",
+  "normalizeLiveAssessment",
+  "gdalRemoteRasterUri",
+  "xyzRasterUri",
+  "resolveCatalogUrl",
+  "passRasterGauge",
+]) {
   assert.equal(logic.includes(expected), true, `DeepPipe.js lacks ${expected}`);
 }
 
@@ -111,7 +147,7 @@ for (const qml of ["main.qml", "DeepPipePanel.qml"]) {
 }
 
 const demoProject = fs.readFileSync(path.join(projectRoot, "DeepPipe_Mobile_Demo.qgs"), "utf8");
-for (const expected of ["<qgis", "</qgis>", "api_base_url", "inlets.geojson"]) {
+for (const expected of ["<qgis", "</qgis>", "api_base_url", "pypass_api_base_url", "inlets.geojson"]) {
   assert.equal(demoProject.includes(expected), true, `Demo QGIS project lacks ${expected}`);
 }
 
