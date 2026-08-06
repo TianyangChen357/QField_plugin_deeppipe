@@ -27,9 +27,9 @@ DeepPipe app-wide plugin
   ├─ prediction / assessment state
   └─ transport boundary
           │
-          ├─ v0.4 live Prediction client + mock fallback
+          ├─ v0.5 live Prediction client + mock fallback
           ├─ live PyPASS point-assessment client
-          └─ hosted XYZ / user-supplied COG raster loader
+          └─ hosted PyPASS XYZ raster loader
                          │
                          ▼
                 DeepPipe / PyPASS APIs
@@ -60,13 +60,13 @@ The selection handler is explicitly obtained from QField by object name, is acti
 
 ## Mobile Assessment state
 
-The plugin accepts either a map point or active GNSS fix, submits WGS84 coordinates and cast-iron nominal diameter to the live PyPASS point endpoint, and shows nullable soil properties plus fixed- and gauge-material service-life estimates. Missing raster coverage is displayed as unavailable with the server warning; it is never converted to zero. PyPASS results are comparisons, not automatic material recommendations.
+The plugin accepts either a map point or active GNSS fix, submits WGS84 coordinates and the API's internal cast-iron reference size to the live PyPASS point endpoint, and shows nullable soil properties plus fixed- and gauge-material service-life estimates. The user chooses a material first; the gauge selector is enabled only for gauge-dependent materials. Missing raster coverage is displayed as unavailable with the server warning; it is never converted to zero. PyPASS results are comparisons, not automatic material recommendations.
 
-The raster workflow retrieves current XYZ templates from the live PyPASS catalog before adding pH, resistivity, chloride, or thresholded service-life layers. It also accepts a direct public HTTPS COG/GeoTIFF URL supplied by the user and opens it through GDAL `/vsicurl/`. No raw COG URL is present in the current public catalog, so none is guessed or embedded. Future pipe selection can use a selected pipe midpoint, but that method must be explicitly recorded as `pipe_midpoint` with the source pipe ID.
+The raster workflow retrieves current XYZ templates from the live PyPASS catalog before adding pH, resistivity, chloride, or thresholded service-life layers. Direct COG/GeoTIFF selection is intentionally not exposed. Future pipe selection can use a selected pipe midpoint, but that method must be explicitly recorded as `pipe_midpoint` with the source pipe ID.
 
 ## Persistence plan
 
-The v0.4 task ID and device-local project mapping are retained in app settings, but map result layers are still intentionally ephemeral. Users can save a combined GeoJSON result; the export is not automatically synchronized by QFieldCloud. Phone-local mapping does not synchronize to other devices; team-wide defaults should be authored in the QGIS project. Production projects should pre-create GeoPackage layers for:
+The v0.5 task ID, device-local project mapping, and prediction settings are retained in app settings, but map result layers are still intentionally ephemeral. Users can save a combined GeoJSON result; the export is not automatically synchronized by QFieldCloud. Phone-local mapping does not synchronize to other devices; team-wide inlet defaults should be authored in the QGIS project. Production projects should pre-create GeoPackage layers for:
 
 - `deeppipe_predicted_pipes`
 - `deeppipe_predicted_structures`

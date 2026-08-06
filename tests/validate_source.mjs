@@ -12,7 +12,7 @@ for (const required of ["main.qml", "metadata.txt", "icon.svg", "DeepPipePanel.q
 }
 
 const metadata = fs.readFileSync(path.join(pluginRoot, "metadata.txt"), "utf8");
-for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.4.0", "icon=icon.svg"]) {
+for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.5.0", "icon=icon.svg"]) {
   assert.equal(metadata.includes(expected), true, `metadata.txt lacks ${expected}`);
 }
 
@@ -42,8 +42,10 @@ for (const expected of [
   "/api/pypass/variables",
   "ensurePointHandlerRegistered",
   "mapRectangleFromScreenBounds",
+  "mapInteractionOverlay",
+  "testApiConnections",
+  "setPredictionConfig",
   "createPredictionResultLayers",
-  "addConfiguredRemoteCog",
   "platformUtilities.sendDatasetTo",
 ]) {
   assert.equal(main.includes(expected), true, `main.qml lacks ${expected}`);
@@ -61,17 +63,27 @@ assert.equal(
   "main.qml exports into a child directory that the plugin does not create",
 );
 assert.equal(main.includes("MapCanvasPointHandler.Priority"), false, "main.qml references a QField-local QML type unavailable to app plugins");
+for (const removed of ["remoteCog", "remote_cog", "gdalRemoteRasterUri", "apiBaseUrlRequested", "passApiBaseUrlRequested"]) {
+  assert.equal(main.includes(removed), false, `main.qml retains removed configuration ${removed}`);
+}
 
 const panel = fs.readFileSync(path.join(pluginRoot, "DeepPipePanel.qml"), "utf8");
 for (const expected of [
   "PRED LIVE",
   "Use this project setup",
   "uuid('WithoutBraces')",
-  "Test API connection",
+  "Configuration",
+  "Pipeline Prediction",
+  "Service Life Assessment",
+  "Check API status",
+  "Number of neighbors (k)",
+  "Enable MST post-processing",
+  "Pipe material",
+  "Not applicable for this material",
+  "DeepPipe field guide",
   "Cancel active prediction",
   "Save combined result as GeoJSON",
   "Run live service-life assessment",
-  "Add remote COG to map",
 ]) {
   assert.equal(panel.includes(expected), true, `DeepPipePanel.qml lacks ${expected}`);
 }
@@ -84,7 +96,7 @@ for (const expected of [
   "decorateLiveResult",
   "partitionPredictionResults",
   "normalizeLiveAssessment",
-  "gdalRemoteRasterUri",
+  "normalizeHttpsUrl",
   "xyzRasterUri",
   "resolveCatalogUrl",
   "passRasterGauge",
@@ -147,7 +159,7 @@ for (const qml of ["main.qml", "DeepPipePanel.qml"]) {
 }
 
 const demoProject = fs.readFileSync(path.join(projectRoot, "DeepPipe_Mobile_Demo.qgs"), "utf8");
-for (const expected of ["<qgis", "</qgis>", "api_base_url", "pypass_api_base_url", "inlets.geojson"]) {
+for (const expected of ["<qgis", "</qgis>", "api_mode", "inlets.geojson"]) {
   assert.equal(demoProject.includes(expected), true, `Demo QGIS project lacks ${expected}`);
 }
 
@@ -162,5 +174,8 @@ for (const feature of demoInlets.features) {
 assert.equal(new Set(demoInlets.features.map((feature) => feature.properties.inlet_uuid)).size, demoInlets.features.length);
 assert.ok(demoProject.includes("<node_id_field type=\"QString\">inlet_uuid</node_id_field>"));
 assert.ok(demoProject.includes("uuid('WithoutBraces')"));
+assert.equal(demoProject.includes("api_base_url"), false);
+assert.equal(demoProject.includes("pypass_api_base_url"), false);
+assert.equal(demoProject.includes("remote_cog"), false);
 
 console.log("DeepPipe QField source and demo-project structure checks passed.");

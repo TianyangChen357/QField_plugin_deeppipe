@@ -1,4 +1,4 @@
-# DeepPipe Mobile API contract — 0.4.0
+# DeepPipe Mobile API contract — 0.5.0
 
 Prediction was checked against `https://lab.yyworkshop.com/predapi/openapi.json`
 on 2026-07-31. PyPASS endpoints were checked live on 2026-08-04.
@@ -166,6 +166,6 @@ validated against each catalog material's `gauge_sizes`; an unsupported value
 falls back to that material's advertised `default_gauge` and is reported in the
 plugin status.
 
-The current catalog exposes no raw COG URL. A direct remote COG can be loaded
-only when the user or project supplies its public HTTPS object URL and the host
-supports byte-range requests.
+The mobile plugin does not expose a direct COG/GeoTIFF URL input. Raster review
+uses the catalog's hosted XYZ templates and does not guess or construct raw
+object URLs.

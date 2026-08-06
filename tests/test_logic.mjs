@@ -75,10 +75,14 @@ let serviceSettingsJson = context.updateProjectServiceSettings(
   "/projects/a.qgs",
   "Same title",
   {
-    api_base_url: "https://prediction-a.example",
-    pypass_api_base_url: "https://pypass-a.example",
-    remote_cog_url: "https://rasters-a.example/service-life.tif",
-    remote_cog_layer_name: "Project A service life",
+    prediction_config: {
+      model_type: "gnn",
+      k_neighbors: 8,
+      with_mst: false,
+      prob_weight: 0.2,
+      elev_weight: 0.3,
+      length_weight: 0.5,
+    },
   },
 );
 serviceSettingsJson = context.updateProjectServiceSettings(
@@ -86,23 +90,27 @@ serviceSettingsJson = context.updateProjectServiceSettings(
   "/projects/b.qgs",
   "Same title",
   {
-    api_base_url: "https://prediction-b.example",
-    pypass_api_base_url: "https://pypass-b.example",
-    remote_cog_url: "",
-    remote_cog_layer_name: "DeepPipe Remote COG",
+    prediction_config: {
+      model_type: "mlp",
+      k_neighbors: 18,
+      with_mst: true,
+      prob_weight: 0.5,
+      elev_weight: 0.0,
+      length_weight: 0.5,
+    },
   },
 );
 assert.equal(
-  context.projectServiceSettings(serviceSettingsJson, "/projects/a.qgs", "Same title").remote_cog_url,
-  "https://rasters-a.example/service-life.tif",
+  context.projectServiceSettings(serviceSettingsJson, "/projects/a.qgs", "Same title").prediction_config.k_neighbors,
+  8,
 );
 assert.equal(
-  context.projectServiceSettings(serviceSettingsJson, "/projects/b.qgs", "Same title").api_base_url,
-  "https://prediction-b.example",
+  context.projectServiceSettings(serviceSettingsJson, "/projects/b.qgs", "Same title").prediction_config.k_neighbors,
+  18,
 );
 assert.equal(
-  context.projectServiceSettings(serviceSettingsJson, "/projects/b.qgs", "Same title").remote_cog_url,
-  "",
+  context.projectServiceSettings(serviceSettingsJson, "/projects/b.qgs", "Same title").prediction_config.model_type,
+  "mlp",
 );
 assert.equal(context.projectServiceSettings(serviceSettingsJson, "/projects/c.qgs", "Same title"), null);
 
@@ -261,10 +269,9 @@ assert.equal(context.normalizeJobStatus("PENDING"), "queued");
 assert.equal(context.normalizeJobStatus("STARTED"), "running");
 assert.equal(context.statusMessage({ info: { step: "Extracting factors" } }), "Extracting factors");
 
-assert.equal(context.normalizeRemoteRasterUrl("https://example.org/layer.tif"), "https://example.org/layer.tif");
-assert.equal(context.normalizeRemoteRasterUrl("http://example.org/layer.tif"), "");
-assert.equal(context.normalizeRemoteRasterUrl("file:///tmp/layer.tif"), "");
-assert.equal(context.gdalRemoteRasterUri("https://example.org/layer.tif"), "/vsicurl/https://example.org/layer.tif");
+assert.equal(context.normalizeHttpsUrl("https://example.org/tiles/{z}/{x}/{y}.png"), "https://example.org/tiles/{z}/{x}/{y}.png");
+assert.equal(context.normalizeHttpsUrl("http://example.org/tiles/{z}/{x}/{y}.png"), "");
+assert.equal(context.normalizeHttpsUrl("file:///tmp/layer.tif"), "");
 assert.match(
   context.xyzRasterUri("https://example.org/tiles/{z}/{x}/{y}.png?gauge=16&min_years=20", 4, 19),
   /url=https:\/\/example\.org\/tiles\/%7Bz%7D\/%7Bx%7D\/%7By%7D\.png%3Fgauge%3D16%26min_years%3D20/,

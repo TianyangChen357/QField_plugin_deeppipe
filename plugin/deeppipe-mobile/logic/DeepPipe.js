@@ -32,17 +32,18 @@ function asFiniteNumber(value, fallback) {
 function normalizePredictionConfig(input) {
     var source = input || {};
     var defaults = predictionDefaults();
+    var requestedModel = String(source.model_type || defaults.model_type).toLowerCase();
     var config = {
-        model_type: String(source.model_type || defaults.model_type).toLowerCase(),
+        model_type: ["gnn", "mlp"].indexOf(requestedModel) >= 0 ? requestedModel : defaults.model_type,
         max_search_radius: clamp(asFiniteNumber(source.max_search_radius, defaults.max_search_radius), 100, 1500),
-        road_half_width_ft: Math.max(0, asFiniteNumber(source.road_half_width_ft, defaults.road_half_width_ft)),
+        road_half_width_ft: clamp(Math.max(0, asFiniteNumber(source.road_half_width_ft, defaults.road_half_width_ft)), 0, 500),
         k_neighbors: Math.round(clamp(asFiniteNumber(source.k_neighbors, defaults.k_neighbors), 3, 20)),
         classification_threshold: clamp(asFiniteNumber(source.classification_threshold, defaults.classification_threshold), 0.51, 0.99),
         threshold_tolerance: clamp(asFiniteNumber(source.threshold_tolerance, defaults.threshold_tolerance), 0, 0.5),
         with_mst: source.with_mst === undefined ? defaults.with_mst : Boolean(source.with_mst),
-        prob_weight: asFiniteNumber(source.prob_weight, defaults.prob_weight),
-        elev_weight: asFiniteNumber(source.elev_weight, defaults.elev_weight),
-        length_weight: asFiniteNumber(source.length_weight, defaults.length_weight)
+        prob_weight: Math.max(0, asFiniteNumber(source.prob_weight, defaults.prob_weight)),
+        elev_weight: Math.max(0, asFiniteNumber(source.elev_weight, defaults.elev_weight)),
+        length_weight: Math.max(0, asFiniteNumber(source.length_weight, defaults.length_weight))
     };
 
     var weightSum = config.prob_weight + config.elev_weight + config.length_weight;
@@ -134,10 +135,7 @@ function updateProjectServiceSettings(text, projectPath, projectName, settings) 
     var settingsByProject = parseProjectMappings(text);
     var source = settings || {};
     settingsByProject[projectKey(projectPath, projectName)] = {
-        api_base_url: String(source.api_base_url || ""),
-        pypass_api_base_url: String(source.pypass_api_base_url || ""),
-        remote_cog_url: String(source.remote_cog_url || ""),
-        remote_cog_layer_name: String(source.remote_cog_layer_name || "DeepPipe Remote COG")
+        prediction_config: normalizePredictionConfig(source.prediction_config)
     };
     return JSON.stringify(settingsByProject);
 }
@@ -508,19 +506,14 @@ function resolveCatalogUrl(baseUrl, value) {
     return apiUrl(base, url);
 }
 
-function normalizeRemoteRasterUrl(value) {
+function normalizeHttpsUrl(value) {
     var url = String(value || "").trim();
     if (!/^https:\/\/[^\s]+$/i.test(url)) return "";
     return url;
 }
 
-function gdalRemoteRasterUri(value) {
-    var url = normalizeRemoteRasterUrl(value);
-    return url ? "/vsicurl/" + url : "";
-}
-
 function xyzRasterUri(value, minimumZoom, maximumZoom) {
-    var url = normalizeRemoteRasterUrl(value);
+    var url = normalizeHttpsUrl(value);
     if (!url) return "";
     var encodedUrl = url
             .replace(/\{/g, "%7B")
@@ -793,6 +786,22 @@ function passMaterials() {
 function passMaterialById(materialId) {
     var id = String(materialId || "");
     return passMaterials().find(function (material) { return material.id === id; }) || passMaterials()[0];
+}
+
+function passMaterialOptions() {
+    return passMaterials().map(function (material) {
+        return {
+            id: material.id,
+            name: material.name,
+            requires_gauge: material.requires_gauge,
+            default_gauge: material.default_gauge,
+            gauge_sizes: material.gauge_sizes.slice()
+        };
+    });
+}
+
+function passGaugeOptions(materialId) {
+    return passMaterialById(materialId).gauge_sizes.slice();
 }
 
 function passRasterGauge(materialId, requestedGauge, catalogMaterials) {

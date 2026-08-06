@@ -11,14 +11,16 @@ Item {
     id: plugin
     objectName: "deepPipeMobilePlugin"
 
-    readonly property string pluginVersion: "0.4.0"
+    readonly property string pluginVersion: "0.5.0"
     readonly property string defaultApiBaseUrl: "https://lab.yyworkshop.com/predapi"
     readonly property string defaultPassApiBaseUrl: "https://lab.yyworkshop.com"
 
     property var mainWindow: iface.mainWindow()
     property var mapCanvas: iface.mapCanvas()
     property var positionSource: iface.positioning()
-    property var pointHandler: null
+    // Resolve the QField handler eagerly, as in the v0.3 implementation. Some
+    // QField builds expose it before the plugin's first project callback.
+    property var pointHandler: iface.findItemByObjectName("pointHandler")
     property bool pointHandlerRegistered: false
 
     property bool hasProject: false
@@ -72,6 +74,8 @@ Item {
     property int activeRequestSerial: 0
     property string apiConnectionStatus: "unknown"
     property string apiConnectionMessage: "Not checked"
+    property string passApiConnectionStatus: "unknown"
+    property string passApiConnectionMessage: "Not checked"
 
     property double assessmentLatitude: NaN
     property double assessmentLongitude: NaN
@@ -88,19 +92,15 @@ Item {
     property var managedRasterLayers: []
     property var managedRasterLayerNames: []
     property string rasterStatus: "idle"
-    property string rasterMessage: "No PyPASS or COG raster has been added by the plugin."
+    property string rasterMessage: "No PyPASS raster has been added by the plugin."
 
     property bool selectionMutationInProgress: false
 
     Settings {
         id: appSettings
         category: "deeppipe-mobile"
-        property string apiBaseUrl: "https://lab.yyworkshop.com/predapi"
         property bool useLiveApi: true
         property bool apiModeInitialized: false
-        property string passApiBaseUrl: "https://lab.yyworkshop.com"
-        property string remoteCogUrl: ""
-        property string remoteCogLayerName: "DeepPipe Remote COG"
         property string lastProjectName: ""
         property string projectMappingsJson: "{}"
         property string projectServiceSettingsJson: "{}"
@@ -114,7 +114,7 @@ Item {
 
     function ensurePointHandlerRegistered(showError) {
         if (pointHandlerRegistered && pointHandler) return true;
-        var handler = iface.findItemByObjectName("pointHandler");
+        var handler = pointHandler || iface.findItemByObjectName("pointHandler");
         if (!handler || typeof handler.registerHandler !== "function") {
             pointHandler = null;
             pointHandlerRegistered = false;
@@ -132,16 +132,14 @@ Item {
             }
             return false;
         };
-        // QField's High point-handler priority is 100; its local QML enum is not exported to plugins.
-        // registerHandler() returns void, so a call that does not throw is the success signal.
+        // The public QField plugin example uses the two-argument form. The v0.4
+        // code passed a raw numeric priority, which is not portable across QField
+        // builds and made the handler silently ineffective on some devices.
         try {
             if (typeof handler.deregisterHandler === "function") {
                 handler.deregisterHandler("deeppipe_mobile_interactions");
             }
-            handler.registerHandler(
-                        "deeppipe_mobile_interactions",
-                        interactionHandler,
-                        100);
+            handler.registerHandler("deeppipe_mobile_interactions", interactionHandler);
         } catch (error) {
             pointHandler = null;
             pointHandlerRegistered = false;
@@ -183,7 +181,7 @@ Item {
         }
         var url = DeepPipe.apiUrl(baseUrl, path);
         if (!url) {
-            if (callback) callback(false, null, 0, "Enter a valid http or https API base URL in Setup.");
+            if (callback) callback(false, null, 0, "The configured DeepPipe service endpoint is invalid.");
             return false;
         }
 
@@ -232,7 +230,7 @@ Item {
     }
 
     function sendApiRequest(method, path, body, timeoutMs, callback) {
-        return sendApiRequestTo(appSettings.apiBaseUrl, method, path, body, timeoutMs, callback);
+        return sendApiRequestTo(defaultApiBaseUrl, method, path, body, timeoutMs, callback);
     }
 
     function saveCurrentProjectServiceSettings() {
@@ -242,59 +240,56 @@ Item {
                     projectPath,
                     projectName,
                     {
-                        api_base_url: appSettings.apiBaseUrl,
-                        pypass_api_base_url: appSettings.passApiBaseUrl,
-                        remote_cog_url: appSettings.remoteCogUrl,
-                        remote_cog_layer_name: appSettings.remoteCogLayerName
+                        prediction_config: predictionConfig
                     });
     }
 
-    function setApiBaseUrl(value) {
-        if (activeJobId || activeRequest) {
-            toast("Wait for the current Prediction request before changing the API URL.");
-            return;
-        }
-        var normalized = DeepPipe.normalizeApiBaseUrl(value);
-        if (!normalized) {
-            toast("Enter a complete API URL beginning with https:// or http://.");
-            return;
-        }
-        appSettings.apiBaseUrl = normalized;
-        saveCurrentProjectServiceSettings();
-        apiConnectionStatus = "unknown";
-        apiConnectionMessage = "Not checked";
-    }
-
-    function setLiveApiEnabled(enabled) {
-        if (activeJobId || activeRequest) {
-            toast("Wait for or cancel the active prediction job before changing API mode.");
-            return;
-        }
-        appSettings.useLiveApi = Boolean(enabled);
-        appSettings.apiModeInitialized = true;
-        predictionStatus = "idle";
-        predictionMessage = "";
-        predictionSummary = null;
-    }
-
-    function testApiConnection() {
+    function testApiConnections() {
         if (activeRequest) {
             toast("Another DeepPipe request is already in progress.");
             return;
         }
         apiConnectionStatus = "checking";
-        apiConnectionMessage = "Checking " + appSettings.apiBaseUrl + "…";
+        apiConnectionMessage = "Checking Prediction API…";
+        passApiConnectionStatus = "checking";
+        passApiConnectionMessage = "Waiting for Prediction API check…";
         sendApiRequest("GET", "/health", null, 20000, function (ok, payload, status, message) {
             if (ok && payload && String(payload.status).toLowerCase() === "ok") {
                 apiConnectionStatus = "ok";
-                apiConnectionMessage = "Connected" + (payload.device ? " · " + payload.device : "");
-                toast("DeepPipe prediction API is reachable.");
+                apiConnectionMessage = "Online" + (payload.device ? " · " + payload.device : "");
             } else {
                 apiConnectionStatus = "failed";
-                apiConnectionMessage = message || "Health check failed";
-                toast(apiConnectionMessage);
+                apiConnectionMessage = message || "Prediction API health check failed";
             }
+
+            passApiConnectionMessage = "Checking PyPASS API…";
+            sendApiRequestTo(defaultPassApiBaseUrl, "GET", "/api/pypass/variables", null, 20000,
+                             function (passOk, passPayload, passStatus, passMessage) {
+                var variables = passOk && Array.isArray(passPayload)
+                        ? passPayload
+                        : (passOk && passPayload && Array.isArray(passPayload.variables)
+                           ? passPayload.variables : []);
+                if (passOk && variables.length > 0) {
+                    passApiConnectionStatus = "ok";
+                    passApiConnectionMessage = "Online";
+                } else {
+                    passApiConnectionStatus = "failed";
+                    passApiConnectionMessage = passMessage || "PyPASS API health check failed";
+                }
+                toast(apiConnectionStatus === "ok" && passApiConnectionStatus === "ok"
+                      ? "Prediction and PyPASS APIs are online."
+                      : "API status check finished; review the status panel.");
+            });
         });
+    }
+
+    function setPredictionConfig(settings) {
+        if (activeJobId || activeRequest) {
+            toast("Wait for the current Prediction request before changing prediction settings.");
+            return;
+        }
+        predictionConfig = DeepPipe.normalizePredictionConfig(settings);
+        saveCurrentProjectServiceSettings();
     }
 
     function persistActiveJob() {
@@ -463,10 +458,6 @@ Item {
 
         var configuredLayerName = hasProject ? String(iface.readProjectEntry("DeepPipe", "inlet_layer", "")) : "";
         var configuredNodeField = hasProject ? String(iface.readProjectEntry("DeepPipe", "node_id_field", "")) : "";
-        var configuredApiBase = hasProject ? String(iface.readProjectEntry("DeepPipe", "api_base_url", "")) : "";
-        var configuredPassApiBase = hasProject ? String(iface.readProjectEntry("DeepPipe", "pypass_api_base_url", "")) : "";
-        var configuredCogUrl = hasProject ? String(iface.readProjectEntry("DeepPipe", "remote_cog_url", "")) : "";
-        var configuredCogName = hasProject ? String(iface.readProjectEntry("DeepPipe", "remote_cog_layer_name", "")) : "";
         var configuredApiMode = hasProject ? String(iface.readProjectEntry("DeepPipe", "api_mode", "")).toLowerCase() : "";
         var savedMapping = hasProject
                 ? DeepPipe.projectMapping(appSettings.projectMappingsJson, projectPath, projectName)
@@ -507,24 +498,14 @@ Item {
         if (!nodeIdField || fieldNames.indexOf(nodeIdField) < 0) mappingConfirmed = false;
         refreshSetupState();
 
-        var nextApiBase = DeepPipe.normalizeApiBaseUrl(
-                    savedServiceSettings ? savedServiceSettings.api_base_url : configuredApiBase) || defaultApiBaseUrl;
-        var nextPassApiBase = DeepPipe.normalizeApiBaseUrl(
-                    savedServiceSettings ? savedServiceSettings.pypass_api_base_url : configuredPassApiBase) || defaultPassApiBaseUrl;
-        var nextCogUrl = String(savedServiceSettings
-                                ? savedServiceSettings.remote_cog_url
-                                : configuredCogUrl || "").trim();
-        var nextCogName = String(savedServiceSettings
-                                 ? savedServiceSettings.remote_cog_layer_name
-                                 : configuredCogName || "DeepPipe Remote COG").trim() || "DeepPipe Remote COG";
-        if (nextApiBase !== appSettings.apiBaseUrl) {
-            apiConnectionStatus = "unknown";
-            apiConnectionMessage = "Not checked";
-        }
-        appSettings.apiBaseUrl = nextApiBase;
-        appSettings.passApiBaseUrl = nextPassApiBase;
-        appSettings.remoteCogUrl = nextCogUrl;
-        appSettings.remoteCogLayerName = nextCogName;
+        apiConnectionStatus = "unknown";
+        apiConnectionMessage = "Not checked";
+        passApiConnectionStatus = "unknown";
+        passApiConnectionMessage = "Not checked";
+        predictionConfig = DeepPipe.normalizePredictionConfig(
+                    savedServiceSettings && savedServiceSettings.prediction_config
+                    ? savedServiceSettings.prediction_config
+                    : DeepPipe.predictionDefaults());
         if (!appSettings.apiModeInitialized) {
             if (configuredApiMode === "live") appSettings.useLiveApi = true;
             if (configuredApiMode === "mock") appSettings.useLiveApi = false;
@@ -697,7 +678,10 @@ Item {
             toast(setupMessage);
             return;
         }
-        if (!ensurePointHandlerRegistered(true)) return;
+        // Keep the public QField point handler as a compatibility path, but do
+        // not block selection when a build exposes the map canvas without it.
+        // The transparent map overlay below handles both tap and box gestures.
+        ensurePointHandlerRegistered(false);
         syncFromNativeSelection();
         interactionMode = "select_inlets";
         inletSelectionMode = "tap";
@@ -848,7 +832,7 @@ Item {
             toast("Open a QField project first.");
             return;
         }
-        if (!ensurePointHandlerRegistered(true)) return;
+        ensurePointHandlerRegistered(false);
         interactionMode = "assessment_location";
         panelDrawer.close();
         toast("Tap the map at the assessment location.");
@@ -866,6 +850,9 @@ Item {
     }
 
     function handleAssessmentMapTap(screenPoint) {
+        var now = Date.now();
+        if (now - lastMapTapMs < 220) return true;
+        lastMapTapMs = now;
         var projectPoint = mapCanvas.mapSettings.screenToCoordinate(Qt.point(screenPoint.x, screenPoint.y));
         var wgs84 = GeometryUtils.reprojectPointToWgs84(projectPoint, mapCanvas.mapSettings.destinationCrs);
         setAssessmentLocation(Number(wgs84.y), Number(wgs84.x), "Map point");
@@ -903,13 +890,13 @@ Item {
         }
         if (!Number.isFinite(assessmentNominalDiameter) || assessmentNominalDiameter <= 0) {
             assessmentStatus = "failed";
-            assessmentMessage = "Enter a cast-iron nominal diameter greater than zero.";
+            assessmentMessage = "The service-life reference size is invalid.";
             toast(assessmentMessage);
             return;
         }
-        if (!DeepPipe.normalizeApiBaseUrl(appSettings.passApiBaseUrl)) {
+        if (!DeepPipe.normalizeApiBaseUrl(defaultPassApiBaseUrl)) {
             assessmentStatus = "failed";
-            assessmentMessage = "Enter a valid PyPASS API URL in Setup.";
+            assessmentMessage = "The built-in PyPASS service endpoint is invalid.";
             toast(assessmentMessage);
             return;
         }
@@ -922,7 +909,7 @@ Item {
             nominal_diameter_cast_iron: Number(assessmentNominalDiameter),
             location_id: "qfield-" + DeepPipe.safeFilePart(projectName, "project")
         };
-        sendApiRequestTo(appSettings.passApiBaseUrl, "POST", "/api/pypass/service-life", body, 60000,
+        sendApiRequestTo(defaultPassApiBaseUrl, "POST", "/api/pypass/service-life", body, 60000,
                          function (ok, payload, status, message) {
             if (!ok) {
                 assessmentStatus = "failed";
@@ -949,32 +936,20 @@ Item {
     function setAssessmentInputs(nominalDiameter, gauge, materialId, minimumYears) {
         var diameter = Number(nominalDiameter);
         if (Number.isFinite(diameter) && diameter > 0) assessmentNominalDiameter = diameter;
+        var material = DeepPipe.passMaterialById(materialId);
+        var allowedGauges = DeepPipe.passGaugeOptions(material.id);
         var nextGauge = Math.round(Number(gauge));
-        if ([8, 10, 12, 14, 16, 18].indexOf(nextGauge) >= 0) assessmentGauge = nextGauge;
-        assessmentMaterialId = DeepPipe.passMaterialById(materialId).id;
+        assessmentMaterialId = material.id;
+        if (allowedGauges.length === 0) {
+            assessmentGauge = 0;
+        } else if (allowedGauges.indexOf(nextGauge) >= 0) {
+            assessmentGauge = nextGauge;
+        } else {
+            assessmentGauge = Number(material.default_gauge || allowedGauges[0]);
+        }
         assessmentMinimumYears = Math.max(0, Math.round(Number(minimumYears) || 0));
         assessmentResult = null;
         if (assessmentStatus === "succeeded") assessmentStatus = "ready";
-    }
-
-    function setPassApiBaseUrl(value) {
-        if (activeRequest) {
-            toast("Wait for the current DeepPipe request before changing the PyPASS URL.");
-            return;
-        }
-        var normalized = DeepPipe.normalizeApiBaseUrl(value);
-        if (!normalized) {
-            toast("Enter a complete PyPASS API URL beginning with https:// or http://.");
-            return;
-        }
-        appSettings.passApiBaseUrl = normalized;
-        saveCurrentProjectServiceSettings();
-    }
-
-    function setRemoteCogConfiguration(url, layerName) {
-        appSettings.remoteCogUrl = String(url || "").trim();
-        appSettings.remoteCogLayerName = String(layerName || "DeepPipe Remote COG").trim() || "DeepPipe Remote COG";
-        saveCurrentProjectServiceSettings();
     }
 
     function addManagedRasterLayer(uri, layerName, provider, opacity) {
@@ -1013,7 +988,7 @@ Item {
     }
 
     function addXyzRasterFromTemplate(template, layerName) {
-        var fullUrl = DeepPipe.resolveCatalogUrl(appSettings.passApiBaseUrl, template);
+        var fullUrl = DeepPipe.resolveCatalogUrl(defaultPassApiBaseUrl, template);
         var uri = DeepPipe.xyzRasterUri(fullUrl, 7, 19);
         return addManagedRasterLayer(uri, layerName, "wms", 0.78);
     }
@@ -1025,7 +1000,7 @@ Item {
         }
         rasterStatus = "loading";
         rasterMessage = "Reading the live PyPASS raster catalog…";
-        sendApiRequestTo(appSettings.passApiBaseUrl, "GET", "/api/pypass/variables", null, 30000,
+        sendApiRequestTo(defaultPassApiBaseUrl, "GET", "/api/pypass/variables", null, 30000,
                          function (ok, payload, status, message) {
             var variables = ok && Array.isArray(payload)
                     ? payload
@@ -1050,7 +1025,7 @@ Item {
         var material = DeepPipe.passMaterialById(assessmentMaterialId);
         rasterStatus = "loading";
         rasterMessage = "Reading live PyPASS service-life layer options…";
-        sendApiRequestTo(appSettings.passApiBaseUrl, "GET", "/api/pypass/service-life-layer/options", null, 30000,
+        sendApiRequestTo(defaultPassApiBaseUrl, "GET", "/api/pypass/service-life-layer/options", null, 30000,
                          function (ok, payload, status, message) {
             var template = ok && payload && payload.tile_url
                     ? String(payload.tile_url)
@@ -1079,21 +1054,6 @@ Item {
         });
     }
 
-    function addConfiguredRemoteCog() {
-        var url = DeepPipe.normalizeRemoteRasterUrl(appSettings.remoteCogUrl);
-        if (!url) {
-            rasterStatus = "failed";
-            rasterMessage = "Enter the direct public HTTPS URL of a COG/GeoTIFF first.";
-            toast(rasterMessage);
-            return;
-        }
-        addManagedRasterLayer(
-                    DeepPipe.gdalRemoteRasterUri(url),
-                    appSettings.remoteCogLayerName,
-                    "gdal",
-                    0.78);
-    }
-
     function removeManagedRasterLayers() {
         if (qgisProject) {
             (Array.isArray(managedRasterLayers) ? managedRasterLayers : []).forEach(function (layer) {
@@ -1103,7 +1063,7 @@ Item {
         managedRasterLayers = [];
         managedRasterLayerNames = [];
         rasterStatus = "idle";
-        rasterMessage = "No PyPASS or COG raster has been added by the plugin.";
+        rasterMessage = "No PyPASS raster has been added by the plugin.";
     }
 
     function removePredictionLayer() {
@@ -1237,9 +1197,9 @@ Item {
             toast(predictionMessage);
             return;
         }
-        if (!DeepPipe.normalizeApiBaseUrl(appSettings.apiBaseUrl)) {
+        if (!DeepPipe.normalizeApiBaseUrl(defaultApiBaseUrl)) {
             predictionStatus = "failed";
-            predictionMessage = "Enter a valid API base URL in Setup before submitting.";
+            predictionMessage = "The built-in Prediction service endpoint is invalid.";
             toast(predictionMessage);
             return;
         }
@@ -1601,6 +1561,7 @@ Item {
             predictionSummary: plugin.predictionSummary
             predictionResultLayer: plugin.predictionResultLayerName
             predictionExportPath: plugin.lastPredictionExportPath
+            predictionConfig: plugin.predictionConfig
             maxSearchRadius: plugin.predictionConfig.max_search_radius
             confidenceThreshold: plugin.predictionConfig.classification_threshold
             assessmentLocationLabel: plugin.assessmentLocationLabel
@@ -1610,14 +1571,15 @@ Item {
             assessmentNominalDiameter: plugin.assessmentNominalDiameter
             assessmentGauge: plugin.assessmentGauge
             assessmentMaterialId: plugin.assessmentMaterialId
+            assessmentGaugeOptions: DeepPipe.passGaugeOptions(plugin.assessmentMaterialId)
+            assessmentMaterialRequiresGauge: DeepPipe.passMaterialById(plugin.assessmentMaterialId).requires_gauge
+            assessmentMaterialName: DeepPipe.passMaterialById(plugin.assessmentMaterialId).name
             assessmentMinimumYears: plugin.assessmentMinimumYears
             mockMode: !appSettings.useLiveApi
-            apiBaseUrl: appSettings.apiBaseUrl
             apiConnectionStatus: plugin.apiConnectionStatus
             apiConnectionMessage: plugin.apiConnectionMessage
-            passApiBaseUrl: appSettings.passApiBaseUrl
-            remoteCogUrl: appSettings.remoteCogUrl
-            remoteCogLayerName: appSettings.remoteCogLayerName
+            passApiConnectionStatus: plugin.passApiConnectionStatus
+            passApiConnectionMessage: plugin.passApiConnectionMessage
             rasterStatus: plugin.rasterStatus
             rasterMessage: plugin.rasterMessage
             rasterLayerNames: plugin.managedRasterLayerNames
@@ -1632,12 +1594,11 @@ Item {
             onSelectInletsRequested: plugin.startInletSelection()
             onFinishSelectionRequested: plugin.finishMapInteraction()
             onClearSelectionRequested: plugin.clearSelectedInlets()
-            onPredictionParametersRequested: function (maximumDistance, threshold) {
+            onPredictionSettingsRequested: function (settings) {
                 var nextConfig = {};
                 for (var key in plugin.predictionConfig) nextConfig[key] = plugin.predictionConfig[key];
-                nextConfig.max_search_radius = maximumDistance;
-                nextConfig.classification_threshold = threshold;
-                plugin.predictionConfig = DeepPipe.normalizePredictionConfig(nextConfig);
+                for (var settingKey in settings) nextConfig[settingKey] = settings[settingKey];
+                plugin.setPredictionConfig(nextConfig);
             }
             onRunPredictionRequested: plugin.startPrediction()
             onCancelPredictionRequested: plugin.cancelLivePrediction()
@@ -1654,26 +1615,25 @@ Item {
                 plugin.addPassVariableRaster(variableId, name);
             }
             onAddPassServiceLifeRasterRequested: plugin.addPassServiceLifeRaster()
-            onAddRemoteCogRequested: plugin.addConfiguredRemoteCog()
             onRemoveRasterLayersRequested: plugin.removeManagedRasterLayers()
-            onApiBaseUrlRequested: function (value) { plugin.setApiBaseUrl(value); }
-            onPassApiBaseUrlRequested: function (value) { plugin.setPassApiBaseUrl(value); }
-            onRemoteCogConfigurationRequested: function (url, name) { plugin.setRemoteCogConfiguration(url, name); }
-            onApiModeRequested: function (enabled) { plugin.setLiveApiEnabled(enabled); }
-            onTestApiRequested: plugin.testApiConnection()
+            onTestApiRequested: plugin.testApiConnections()
         }
     }
 
+    // QField's point handler is the preferred single-tap path, but an overlay
+    // makes selection deterministic on QField builds where the handler is not
+    // exposed to app-wide plugins. It also gives drag selection one coordinate
+    // system for both mouse and touch devices.
     Item {
-        id: boxSelectionOverlay
+        id: mapInteractionOverlay
         parent: mapCanvas ? mapCanvas : plugin
         anchors.fill: parent
-        visible: interactionMode === "select_inlets" && inletSelectionMode === "box"
+        visible: interactionMode === "select_inlets" || interactionMode === "assessment_location"
         enabled: visible
         z: 9999
 
         MouseArea {
-            id: boxDragArea
+            id: mapInteractionArea
             anchors.fill: parent
             preventStealing: true
             property point dragStart: Qt.point(0, 0)
@@ -1681,6 +1641,7 @@ Item {
             property bool dragging: false
 
             onPressed: function (mouse) {
+                if (interactionMode !== "select_inlets" || inletSelectionMode !== "box") return;
                 dragStart = Qt.point(mouse.x, mouse.y);
                 dragCurrent = dragStart;
                 dragging = true;
@@ -1689,13 +1650,21 @@ Item {
                 if (dragging) dragCurrent = Qt.point(mouse.x, mouse.y);
             }
             onCanceled: dragging = false
+            onClicked: function (mouse) {
+                var screenPoint = Qt.point(mouse.x, mouse.y);
+                if (interactionMode === "assessment_location") {
+                    handleAssessmentMapTap(screenPoint);
+                } else if (inletSelectionMode === "tap") {
+                    handleInletMapTap(screenPoint);
+                }
+            }
             onReleased: function (mouse) {
                 if (!dragging) return;
                 dragCurrent = Qt.point(mouse.x, mouse.y);
-                var width = Math.abs(dragCurrent.x - dragStart.x);
-                var height = Math.abs(dragCurrent.y - dragStart.y);
+                var dragWidth = Math.abs(dragCurrent.x - dragStart.x);
+                var dragHeight = Math.abs(dragCurrent.y - dragStart.y);
                 dragging = false;
-                if (width < 10 || height < 10) {
+                if (dragWidth < 10 || dragHeight < 10) {
                     toast("Drag a larger rectangle, or switch to Tap mode for one inlet.");
                     return;
                 }
@@ -1704,13 +1673,13 @@ Item {
         }
 
         Rectangle {
-            visible: boxDragArea.dragging
-            x: Math.min(boxDragArea.dragStart.x, boxDragArea.dragCurrent.x)
-            y: Math.min(boxDragArea.dragStart.y, boxDragArea.dragCurrent.y)
-            width: Math.abs(boxDragArea.dragCurrent.x - boxDragArea.dragStart.x)
-            height: Math.abs(boxDragArea.dragCurrent.y - boxDragArea.dragStart.y)
-            color: "#33087565"
-            border.color: "#087565"
+            visible: mapInteractionArea.dragging
+            x: Math.min(mapInteractionArea.dragStart.x, mapInteractionArea.dragCurrent.x)
+            y: Math.min(mapInteractionArea.dragStart.y, mapInteractionArea.dragCurrent.y)
+            width: Math.abs(mapInteractionArea.dragCurrent.x - mapInteractionArea.dragStart.x)
+            height: Math.abs(mapInteractionArea.dragCurrent.y - mapInteractionArea.dragStart.y)
+            color: "#33005035"
+            border.color: "#005035"
             border.width: 2
             radius: 3
         }
@@ -1829,8 +1798,6 @@ Item {
     }
 
     Component.onCompleted: {
-        if (!appSettings.apiBaseUrl) appSettings.apiBaseUrl = defaultApiBaseUrl;
-        if (!appSettings.passApiBaseUrl) appSettings.passApiBaseUrl = defaultPassApiBaseUrl;
         iface.addItemToPluginsToolbar(pluginButton);
         ensurePointHandlerRegistered(false);
         loadProjectConfiguration(true);
