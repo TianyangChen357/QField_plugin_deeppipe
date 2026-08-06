@@ -229,39 +229,58 @@ const livePipeResult = {
   type: "FeatureCollection",
   features: [{
     type: "Feature",
-    properties: { node_u: "G-001", node_v: "G-002", prob: 0.91 },
+    properties: { node_u: "G-001", node_v: "G-002", prob: 0.91, model_class: 1, class: 1, length: 180.5 },
     geometry: { type: "LineString", coordinates: [[-80, 35], [-80, 35.0005]] },
   }],
 };
 const decorated = context.decorateLiveResult(livePipeResult, "job-123");
 assert.equal(decorated.features[0].properties.job_id, "job-123");
 assert.equal(decorated.features[0].properties.analysis_mode, "live_api");
-assert.equal(decorated.features[0].properties.deeppipe_outcome, "unknown");
+assert.equal(decorated.features[0].properties.deeppipe_outcome, "predicted");
 assert.equal(decorated.crs.properties.name, "EPSG:4326");
 const thresholdDecorated = context.decorateLiveResult(livePipeResult, "job-123", 0.85);
 assert.equal(thresholdDecorated.features[0].properties.deeppipe_outcome, "predicted");
-assert.equal(thresholdDecorated.features[0].properties.deeppipe_color, "#16a34a");
-assert.equal(context.predictionResultType({ properties: { class: 0 } }, 0.85), "potential");
-assert.equal(context.predictionResultType({ properties: { is_connect: -1 } }, 0.85), "potential");
-assert.equal(context.predictionResultType({ properties: { probability: 0.92 } }, 0.85), "predicted");
-assert.equal(context.predictionResultType({ properties: { score: 0.81 } }, 0.85), "potential");
-assert.equal(context.predictionResultType({ properties: { model_class: 0, class: 1 } }, 0.85), "predicted");
-assert.equal(context.predictionResultType({ properties: { result_type: "candidate" } }, 0.85), "unknown");
+assert.equal(thresholdDecorated.features[0].properties.deeppipe_color, "#005035");
+assert.equal(context.predictionResultType({ properties: { class: 0, model_class: 1, prob: 0.92 } }, 0.85), "potential");
+assert.equal(context.predictionResultType({ properties: { is_connect: -1 } }, 0.85), "excluded");
+assert.equal(context.predictionResultType({ properties: { probability: 0.92 } }, 0.85), "unknown");
+assert.equal(context.predictionResultType({ properties: { class: 0, model_class: 1, score: 0.81 } }, 0.85), "excluded");
+assert.equal(context.predictionResultType({ properties: { model_class: 0, class: 1, prob: 0.92 } }, 0.85), "excluded");
+assert.equal(context.predictionResultType({ properties: { result_type: "candidate" } }, 0.85), "excluded");
 const partitioned = context.partitionPredictionResults({
   type: "FeatureCollection",
   features: [
-    { type: "Feature", properties: { class: 1 }, geometry: null },
-    { type: "Feature", properties: { is_connect: 0 }, geometry: null },
+    { type: "Feature", properties: { class: 1, model_class: 1, prob: 0.92 }, geometry: null },
+    { type: "Feature", properties: { class: 0, model_class: 1, prob: 0.91 }, geometry: null },
+    { type: "Feature", properties: { class: 0, model_class: 1, prob: 0.50 }, geometry: null },
     { type: "Feature", properties: {}, geometry: null },
   ],
 }, 0.85);
 assert.equal(partitioned.predictedCount, 1);
 assert.equal(partitioned.potentialCount, 1);
-assert.equal(partitioned.unknownCount, 1);
+assert.equal(partitioned.unknownCount, 0);
+assert.equal(partitioned.excludedCount, 2);
+assert.equal(partitioned.total, 2);
 const liveSummary = context.summarizeLiveResult(thresholdDecorated, 3, 0.85);
 assert.equal(liveSummary.predicted, 1);
-assert.equal(liveSummary.potential, null);
+assert.equal(liveSummary.potential, 0);
 assert.equal(liveSummary.unknown, 0);
+
+const resultTable = context.predictionAttributeTable({
+  type: "FeatureCollection",
+  features: partitioned.predicted.features.concat(partitioned.potential.features),
+});
+assert.equal(resultTable.rows.length, 2);
+assert.deepEqual(Array.from(resultTable.columns.slice(0, 6), (column) => column.key), [
+  "__row", "deeppipe_outcome", "prob", "class", "model_class", "deeppipe_color",
+]);
+assert.equal(resultTable.rows[1].deeppipe_outcome, "potential");
+assert.equal(resultTable.rows[1].deeppipe_color, "#F4C430");
+
+assert.equal(
+  context.featureCollectionMultiLineWkt(livePipeResult),
+  "MULTILINESTRING ((-80 35, -80 35.0005))",
+);
 
 assert.equal(context.normalizeJobStatus("SUCCESS"), "succeeded");
 assert.equal(context.normalizeJobStatus("REVOKED"), "cancelled");

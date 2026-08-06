@@ -27,7 +27,7 @@ DeepPipe app-wide plugin
   ├─ prediction / assessment state
   └─ transport boundary
           │
-          ├─ v0.5.12 live Prediction client + mock fallback
+          ├─ v0.5.13 live Prediction client + mock fallback
           ├─ live PyPASS point-assessment client
           └─ hosted PyPASS XYZ raster loader
                          │
@@ -46,15 +46,16 @@ The plugin never embeds the existing React/Leaflet portal. QField remains the so
 5. The snapshot is validated for count, node-ID validity/uniqueness, and geometry.
 6. Live mode transforms the snapshot to EPSG:4326 GeoJSON and submits it through QField's HTTP client; mock mode creates a deterministic local preview.
 7. Live mode persists the task ID, polls with network backoff/resume, then retrieves only the pipe-named GeoJSON.
-8. Returned features are normalized into `predicted`, `potential`, or `unknown` outcomes. Each non-empty outcome becomes its own memory layer; potential and unknown layers use reduced opacity. Live GeoJSON uses WGS84 and mock GeoJSON remains in the inlet-layer CRS.
-9. The combined decorated GeoJSON remains in plugin state. On export, a short-lived memory layer is created, written under the project or device documents folder, and removed immediately.
+8. The backend's threshold-qualified GNN-positive features are normalized using final MST `class`: `class=1` becomes `predicted`, while `class=0` becomes `potential`. Below-threshold or model-negative records are excluded. Each non-empty outcome becomes its own attribute-bearing memory layer.
+9. Two non-interactive map geometry overlays render Predicted in Charlotte Green and Potential in yellow. This provides exact colors without mutating QGIS renderers through the app-wide QML boundary.
+10. The combined decorated GeoJSON and a dynamic full-field attribute table remain in plugin state. On export, a short-lived memory layer is created, written under the project or device documents folder, and removed immediately. The completed task ID also supplies the server ZIP download URL.
 
 The normalized export fields include `deeppipe_outcome` and `deeppipe_color`
-(`predicted`/green, `potential`/orange, and `unknown`/gray). QField 4.2 does not
-expose categorized-renderer mutation through its QML plugin API, so the generic
-app-wide fallback separates outcomes into layers and uses opacity. A production
-project can apply exact rule-based colors in pre-created result layers using
-the normalized fields.
+(`predicted`/`#005035` and `potential`/`#F4C430`). QField 4.2 does not expose
+vector-renderer mutation through its app-wide QML plugin API, so exact mobile
+colors are drawn as map overlays while the separate memory layers retain all
+attributes and remain available to identify. A production project can instead
+apply rule-based colors in pre-created persistent result layers.
 
 The selection handler is explicitly obtained from QField by object name, is active only during the map-selection state, is throttled to avoid rapid-tap re-entry, closes every feature iterator, and is deregistered when the plugin unloads. Tap, Box, and Visible convert screen bounds to a `QgsRectangle` using `QgsPoint` values from `GeometryUtils.point()` before querying the configured layer. Box mode intentionally captures drag gestures until the user switches back to Tap mode.
 
@@ -66,7 +67,7 @@ The raster workflow retrieves current XYZ templates from the live PyPASS catalog
 
 ## Persistence plan
 
-The v0.5.12 task ID, device-local project mapping, and prediction settings are retained in app settings, but map result layers are still intentionally ephemeral. Users can save a combined GeoJSON result; the export is not automatically synchronized by QFieldCloud. Phone-local mapping does not synchronize to other devices; team-wide inlet defaults should be authored in the QGIS project. Production projects should pre-create GeoPackage layers for:
+The v0.5.13 task ID, device-local project mapping, and prediction settings are retained in app settings, but map result layers are still intentionally ephemeral. Users can save a combined GeoJSON result or download the server job ZIP; neither is automatically synchronized by QFieldCloud. Phone-local mapping does not synchronize to other devices; team-wide inlet defaults should be authored in the QGIS project. Production projects should pre-create GeoPackage layers for:
 
 - `deeppipe_predicted_pipes`
 - `deeppipe_predicted_structures`

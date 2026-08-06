@@ -1,7 +1,8 @@
-# DeepPipe Mobile API contract — 0.5.12
+# DeepPipe Mobile API contract — 0.5.13
 
 Prediction was checked against `https://lab.yyworkshop.com/predapi/openapi.json`
-on 2026-07-31. PyPASS endpoints were checked live on 2026-08-04.
+and successful job outputs on 2026-08-06. PyPASS endpoints were checked live on
+2026-08-04.
 
 ## Health
 
@@ -73,6 +74,7 @@ The double `jobs/jobs` path is intentional.
 GET /api/jobs/jobs/{task_id}/status
 GET /api/jobs/jobs/{task_id}/files
 GET /api/jobs/jobs/{task_id}/geojson/Pipes.geojson
+GET /api/jobs/jobs/{task_id}/download
 POST /api/jobs/jobs/{task_id}/cancel
 ```
 
@@ -88,9 +90,23 @@ Expected status shape:
 }
 ```
 
-Terminal statuses handled by the client are `succeeded`, `failed`, and `cancelled`. On success, `/files` must identify a pipe-named GeoJSON; the client will not fall back to `Structures.geojson`. The downloaded pipe FeatureCollection is returned in EPSG:4326 and is loaded with an explicit WGS84 CRS.
+Terminal statuses handled by the client are `succeeded`, `failed`, and `cancelled`. On success, `/files` must identify a pipe-named GeoJSON; the client will not fall back to `Structures.geojson`. The downloaded pipe FeatureCollection is returned in EPSG:4326 and is loaded with an explicit WGS84 CRS. The plugin exposes the job `/download` URL after completion. The live ZIP inspected on 2026-08-06 contained `Structures.geojson`, `Pipes.geojson`, and `log.txt`.
 
-The backend currently writes only pipes that meet `classification_threshold`; therefore the client cannot calculate the number of below-threshold potential pipes. To match the deployed portal, the client normalizes outcomes in this order when fields are present: final `class`, `is_connect`, `prob`/`probability`/`score` compared with the submitted threshold, explicit outcome aliases, then `model_class` as a last fallback. The stable export fields are `deeppipe_outcome` and `deeppipe_color`.
+The backend currently writes only GNN-positive pipes that meet
+`classification_threshold`. Within that already filtered set, `model_class=1`
+records can contain either final `class=1` or `class=0` after MST
+post-processing. The mobile client therefore defines:
+
+- `Predicted`: `model_class=1`, probability at or above the submitted threshold, and final `class=1`;
+- `Potential`: `model_class=1`, probability at or above the submitted threshold, and final `class=0`.
+- Features with a missing/unparseable probability, a probability below the
+  submitted threshold, or `model_class!=1` are excluded from both display
+  classes.
+
+Below-threshold or model-negative records are excluded rather than labeled
+Potential. `is_connect` is not used as the post-processing result because live
+outputs may carry `is_connect=-1`. The stable export fields are
+`deeppipe_outcome` and `deeppipe_color` (`#005035` / `#F4C430`).
 
 ## Error shapes
 

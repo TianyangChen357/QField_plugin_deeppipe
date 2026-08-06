@@ -1,15 +1,15 @@
-# DeepPipe Mobile QField plugin — API test 0.5.12
+# DeepPipe Mobile QField plugin — API test 0.5.13
 
 This app-wide QField plugin provides two touch-first field workflows:
 
 1. select inlet points directly from the active QField project and submit them to the DeepPipe Prediction API; and
 2. choose a map/GNSS location and exercise the pipe service-life Assessment interface.
 
-Version 0.5.12 connects **Pipeline Prediction** and **Service Life Assessment** to their live APIs, fixes Tap/Box/Visible inlet selection, uses the layer saved in **Configuration** without a second chooser, adds result export, separates returned outcome classes into display layers, adds configurable model settings, and can add hosted PyPASS XYZ rasters.
+Version 0.5.13 connects **Pipeline Prediction** and **Service Life Assessment** to their live APIs, uses the layer saved in **Configuration** without a second chooser, supports Tap/Box/Visible inlet selection, renders threshold-qualified Predicted/Potential outcomes in green/yellow, provides a complete result attribute table and job-ZIP download, exports combined GeoJSON, and can add hosted PyPASS XYZ rasters.
 
 ## Install
 
-Install `deeppipe-mobile-v0.5.12.zip`. Its `main.qml` is at the ZIP root, as required for an app-wide QField plugin.
+Install `deeppipe-mobile-v0.5.13.zip`. Its `main.qml` is at the ZIP root, as required for an app-wide QField plugin.
 
 1. Host the ZIP at an HTTPS URL reachable by the phone.
 2. In QField, open **Settings → Plugins → Install plugin from URL**.
@@ -45,7 +45,7 @@ That mapping and the selected prediction settings are stored locally for the exa
 4. Review the prediction settings. Defaults are GNN, 500 ft, confidence 0.85, k=12, MST enabled, and 50% GNN probability / 50% length weighting. Elevation weighting is fixed at zero internally and is not shown as a user control.
 5. Tap **Predict pipes**.
 
-The plugin transforms selected points to EPSG:4326, sends a GeoJSON FeatureCollection to `POST /api/pred/pred_deep`, saves the returned task ID, polls status, downloads `Pipes.geojson`, and adds temporary WGS84 outcome layers. It normalizes final `class`, `is_connect`, probability/score, explicit outcome aliases, or `model_class` (in that precedence order) into `deeppipe_outcome`; potential and unknown outcomes use separate lower-opacity layers. A combined `DeepPipe_prediction_<job-id>.geojson` file can be saved directly in the existing project folder, or in the device Documents folder when the project has no home path. A pending task resumes when the same project is reopened. Submission is never retried automatically after an ambiguous timeout, which avoids accidental duplicate jobs.
+The plugin transforms selected points to EPSG:4326, sends a GeoJSON FeatureCollection to `POST /api/pred/pred_deep`, saves the returned task ID, polls status, downloads `Pipes.geojson`, and adds temporary WGS84 outcome layers. The backend first retains GNN-positive candidates at or above `classification_threshold`; the plugin then maps final `class=1` to Predicted and final `class=0` to Potential. Exact Charlotte Green/yellow map overlays sit above the attribute-bearing memory layers. The plugin can display every returned field, open `/api/jobs/jobs/{task_id}/download` for the server ZIP, and save a combined `DeepPipe_prediction_<job-id>.geojson` in the project or device Documents folder. A pending task resumes when the same project is reopened. Submission is never retried automatically after an ambiguous timeout, which avoids accidental duplicate jobs.
 
 Use **Configuration → Check API status** before the first submission. The status card checks both Prediction and PyPASS; their origins are built into the plugin. A local preview fallback remains available for offline UI testing when the project is configured with `api_mode=mock`.
 
@@ -54,11 +54,11 @@ For multiple users or offline collection, configure a text UUID field with the Q
 ## Important test-only limitations
 
 - The configured API currently advertises no authentication. Do not send sensitive field data.
-- The API returns only threshold-filtered pipes, so the potential-pipe count is unavailable.
+- The API returns only threshold-filtered GNN-positive pipes; Potential is therefore not a below-threshold class. It means final `class=0` after MST within the threshold-qualified set.
 - The current backend implementation must still be verified/fixed for feet-based distance handling when the phone submits EPSG:4326 coordinates. Treat live output as experimental review data, not an engineering determination.
 - Map result layers are in-memory and disappear when the project closes; use the GeoJSON export action to retain a copy.
 - Only the saved task ID is queried; the plugin never calls the global jobs list.
-- The deployed Prediction endpoint currently returns only threshold-filtered candidates, so live output may contain no potential layer.
+- A particular job may legitimately contain zero Potential features when every returned candidate has final `class=1`.
 - PyPASS returns service-life comparisons, not a material recommendation.
 - Hosted soil/service-life rasters are loaded as XYZ layers. Direct COG selection is not part of the mobile workflow.
 

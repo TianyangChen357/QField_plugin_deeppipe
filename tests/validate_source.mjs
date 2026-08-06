@@ -12,12 +12,12 @@ for (const required of ["main.qml", "metadata.txt", "icon.svg", "DeepPipePanel.q
 }
 
 const metadata = fs.readFileSync(path.join(pluginRoot, "metadata.txt"), "utf8");
-for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.5.12", "icon=icon.svg"]) {
+for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.5.13", "icon=icon.svg"]) {
   assert.equal(metadata.includes(expected), true, `metadata.txt lacks ${expected}`);
 }
 
 const main = fs.readFileSync(path.join(pluginRoot, "main.qml"), "utf8");
-assert.equal(main.includes('readonly property string pluginVersion: "0.5.12"'), true, "main.qml has the wrong plugin version");
+assert.equal(main.includes('readonly property string pluginVersion: "0.5.13"'), true, "main.qml has the wrong plugin version");
 for (const expected of [
   "iface.addItemToPluginsToolbar",
   "handler.registerHandler",
@@ -48,6 +48,11 @@ for (const expected of [
   "testApiConnections",
   "setPredictionConfig",
   "createPredictionResultLayers",
+  "QFieldItems.GeometryRenderer",
+  "featureCollectionMultiLineWkt",
+  "predictionAttributeTable",
+  "/download",
+  "Qt.openUrlExternally",
   "platformUtilities.sendDatasetTo",
 ]) {
   assert.equal(main.includes(expected), true, `main.qml lacks ${expected}`);
@@ -71,7 +76,7 @@ for (const removed of ["remoteCog", "remote_cog", "gdalRemoteRasterUri", "apiBas
 }
 
 const panel = fs.readFileSync(path.join(pluginRoot, "DeepPipePanel.qml"), "utf8");
-assert.equal(panel.includes('property string pluginVersion: "0.5.12"'), true, "DeepPipePanel.qml has the wrong plugin version");
+assert.equal(panel.includes('property string pluginVersion: "0.5.13"'), true, "DeepPipePanel.qml has the wrong plugin version");
 for (const duplicateFontAssignment of ["font: setupTab.font", "font: predictionTab.font", "font: assessmentTab.font"]) {
   assert.equal(panel.includes(duplicateFontAssignment), false, `DeepPipePanel.qml retains ${duplicateFontAssignment}`);
 }
@@ -93,6 +98,8 @@ for (const expected of [
   "DeepPipe field guide",
   "Cancel active prediction",
   "Save combined result as GeoJSON",
+  "View result attribute table",
+  "Download complete job ZIP",
   "Run live service-life assessment",
 ]) {
   assert.equal(panel.includes(expected), true, `DeepPipePanel.qml lacks ${expected}`);
@@ -108,6 +115,8 @@ for (const expected of [
   "choosePipeResultFilename",
   "decorateLiveResult",
   "partitionPredictionResults",
+  "predictionAttributeTable",
+  "featureCollectionMultiLineWkt",
   "normalizeLiveAssessment",
   "normalizeHttpsUrl",
   "xyzRasterUri",

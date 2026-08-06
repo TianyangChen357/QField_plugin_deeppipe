@@ -393,6 +393,7 @@ function buildMockPrediction(points, inputConfig, jobId) {
     var edges = buildMinimumSpanningEdges(points);
     var predicted = 0;
     var potential = 0;
+    var excluded = 0;
 
     var features = edges.map(function (edge, index) {
         var distanceRatio = clamp(edge.distance / config.max_search_radius, 0, 1.5);
@@ -401,11 +402,11 @@ function buildMockPrediction(points, inputConfig, jobId) {
         var probability = clamp(0.96 - distanceRatio * 0.28 + hashAdjustment, 0.51, 0.98);
         var withinRadius = edge.distance <= config.max_search_radius;
         var modelClass = withinRadius && probability >= config.classification_threshold ? 1 : 0;
-        var resultType = modelClass === 1 ? "predicted" : "potential";
+        var resultType = modelClass === 1 ? "predicted" : "excluded";
         if (modelClass === 1) {
             predicted += 1;
         } else {
-            potential += 1;
+            excluded += 1;
         }
 
         return {
@@ -446,10 +447,11 @@ function buildMockPrediction(points, inputConfig, jobId) {
             features: features
         },
         summary: {
-            total: features.length,
+            total: predicted + potential,
             predicted: predicted,
             potential: potential,
             unknown: 0,
+            excluded: excluded,
             selectedInlets: points.length,
             threshold: config.classification_threshold
         },
@@ -596,8 +598,31 @@ function choosePipeResultFilename(files) {
     return pipeGeoJson || "";
 }
 
+function predictionNumericProperty(properties, names) {
+    var source = properties || {};
+    for (var index = 0; index < names.length; index += 1) {
+        var value = source[names[index]];
+        if (value === undefined || value === null || value === "") continue;
+        var number = Number(value);
+        if (Number.isFinite(number)) return number;
+    }
+    return NaN;
+}
+
 function predictionResultType(feature, threshold) {
     var properties = feature && feature.properties ? feature.properties : {};
+    var numericThreshold = Number(threshold);
+    var probability = predictionNumericProperty(properties, ["prob", "probability", "score"]);
+    var modelClass = predictionNumericProperty(properties, ["model_class"]);
+
+    // Potential means a GNN-positive candidate that met the submitted
+    // probability threshold but was not retained by the final MST result. A
+    // below-threshold or model-negative candidate must never be presented as
+    // Potential.
+    if (Number.isFinite(numericThreshold) &&
+            (!Number.isFinite(probability) || probability < numericThreshold)) return "excluded";
+    if (Number.isFinite(modelClass) && modelClass !== 1) return "excluded";
+
     var classValue = properties.class;
     if (classValue !== undefined && classValue !== null && classValue !== "") {
         var normalizedClass = Number(classValue);
@@ -608,43 +633,24 @@ function predictionResultType(feature, threshold) {
         }
     }
 
-    var connectivity = properties.is_connect;
-    if (connectivity !== undefined && connectivity !== null && connectivity !== "") {
-        var normalizedConnectivity = Number(connectivity);
-        if (Number.isFinite(normalizedConnectivity)) {
-            if (normalizedConnectivity === 1) return "predicted";
-            if (normalizedConnectivity === 0 || normalizedConnectivity === -1) return "potential";
-            return "unknown";
-        }
-    }
-
-    var probability = properties.prob;
-    if (probability === undefined || probability === null || probability === "") probability = properties.probability;
-    if (probability === undefined || probability === null || probability === "") probability = properties.score;
-    var numericProbability = Number(probability);
-    var numericThreshold = Number(threshold);
-    if (Number.isFinite(numericProbability) && Number.isFinite(numericThreshold)) {
-        return numericProbability >= numericThreshold ? "predicted" : "potential";
-    }
-
     var explicitType = String(properties.deeppipe_outcome || properties.result_type || properties.display_class || "").toLowerCase();
-    if (["potential", "negative", "rejected", "below_threshold", "class_0"].indexOf(explicitType) >= 0) {
+    if (["potential", "rejected", "class_0"].indexOf(explicitType) >= 0) {
         return "potential";
     }
     if (["predicted", "positive", "accepted", "class_1"].indexOf(explicitType) >= 0) {
         return "predicted";
     }
-    if (explicitType === "unknown") return "unknown";
-
-    var modelClass = properties.model_class;
-    if (modelClass !== undefined && modelClass !== null && modelClass !== "") {
-        var normalizedModelClass = Number(modelClass);
-        if (Number.isFinite(normalizedModelClass)) {
-            if (normalizedModelClass === 1) return "predicted";
-            if (normalizedModelClass === 0) return "potential";
-        }
+    if (["negative", "below_threshold", "excluded", "model_0"].indexOf(explicitType) >= 0) {
+        return "excluded";
     }
+    if (explicitType === "unknown") return "unknown";
     return "unknown";
+}
+
+function predictionResultColor(resultType) {
+    if (resultType === "predicted") return "#005035";
+    if (resultType === "potential") return "#F4C430";
+    return "#64748b";
 }
 
 function partitionPredictionResults(featureCollection, threshold) {
@@ -652,6 +658,7 @@ function partitionPredictionResults(featureCollection, threshold) {
     var predicted = [];
     var potential = [];
     var unknown = [];
+    var excluded = [];
     (Array.isArray(source.features) ? source.features : []).forEach(function (feature) {
         var resultType = predictionResultType(feature, threshold);
         var copy = {
@@ -665,11 +672,10 @@ function partitionPredictionResults(featureCollection, threshold) {
         copy.properties.result_type = resultType;
         copy.properties.display_class = resultType;
         copy.properties.deeppipe_outcome = resultType;
-        copy.properties.deeppipe_color = resultType === "predicted"
-                ? "#16a34a"
-                : (resultType === "potential" ? "#f59e0b" : "#64748b");
+        copy.properties.deeppipe_color = predictionResultColor(resultType);
         if (resultType === "potential") potential.push(copy);
         else if (resultType === "predicted") predicted.push(copy);
+        else if (resultType === "excluded") excluded.push(copy);
         else unknown.push(copy);
     });
 
@@ -684,10 +690,13 @@ function partitionPredictionResults(featureCollection, threshold) {
         predicted: collection(predicted),
         potential: collection(potential),
         unknown: collection(unknown),
+        excluded: collection(excluded),
         predictedCount: predicted.length,
         potentialCount: potential.length,
         unknownCount: unknown.length,
-        total: predicted.length + potential.length + unknown.length
+        excludedCount: excluded.length,
+        total: predicted.length + potential.length,
+        returnedTotal: predicted.length + potential.length + unknown.length + excluded.length
     };
 }
 
@@ -709,9 +718,7 @@ function decorateLiveResult(featureCollection, jobId, threshold) {
         copy.properties.result_type = predictionResultType(copy, threshold);
         copy.properties.display_class = copy.properties.result_type;
         copy.properties.deeppipe_outcome = copy.properties.result_type;
-        copy.properties.deeppipe_color = copy.properties.result_type === "predicted"
-                ? "#16a34a"
-                : (copy.properties.result_type === "potential" ? "#f59e0b" : "#64748b");
+        copy.properties.deeppipe_color = predictionResultColor(copy.properties.result_type);
         return copy;
     });
     return {
@@ -729,11 +736,94 @@ function summarizeLiveResult(featureCollection, selectedCount, threshold) {
     return {
         total: partitions.total,
         predicted: partitions.predictedCount,
-        potential: partitions.potentialCount > 0 ? partitions.potentialCount : null,
+        potential: partitions.potentialCount,
         unknown: partitions.unknownCount,
+        excluded: partitions.excludedCount,
         selectedInlets: Number(selectedCount || 0),
         threshold: Number(threshold || 0)
     };
+}
+
+function predictionAttributeLabel(key) {
+    var labels = {
+        __row: "Row",
+        deeppipe_outcome: "Outcome",
+        node_u: "From inlet",
+        node_v: "To inlet",
+        prob: "GNN probability",
+        probability: "GNN probability",
+        length: "Length (ft)",
+        class: "MST final class",
+        model_class: "GNN class"
+    };
+    return labels[key] || String(key || "");
+}
+
+function predictionAttributeTable(featureCollection) {
+    var features = featureCollection && Array.isArray(featureCollection.features)
+            ? featureCollection.features : [];
+    var preferred = [
+        "__row", "deeppipe_outcome", "node_u", "node_v", "prob", "length",
+        "class", "model_class", "sample_id", "link_id", "job_id"
+    ];
+    var seen = {};
+    var keys = [];
+    function addKey(key) {
+        var normalized = String(key || "");
+        if (!normalized || seen[normalized]) return;
+        seen[normalized] = true;
+        keys.push(normalized);
+    }
+    preferred.forEach(addKey);
+    features.forEach(function (feature) {
+        Object.keys(feature && feature.properties ? feature.properties : {}).sort().forEach(addKey);
+    });
+
+    // Do not show preferred placeholders that are absent from every feature.
+    keys = keys.filter(function (key) {
+        if (key === "__row") return true;
+        return features.some(function (feature) {
+            var properties = feature && feature.properties ? feature.properties : {};
+            return properties[key] !== undefined;
+        });
+    });
+
+    return {
+        columns: keys.map(function (key) { return { key: key, label: predictionAttributeLabel(key) }; }),
+        rows: features.map(function (feature, index) {
+            var row = { __row: index + 1 };
+            var properties = feature && feature.properties ? feature.properties : {};
+            Object.keys(properties).forEach(function (key) { row[key] = properties[key]; });
+            return row;
+        })
+    };
+}
+
+function featureCollectionMultiLineWkt(featureCollection) {
+    var lines = [];
+    var features = featureCollection && Array.isArray(featureCollection.features)
+            ? featureCollection.features : [];
+
+    function appendLine(coordinates) {
+        if (!Array.isArray(coordinates) || coordinates.length < 2) return;
+        var points = [];
+        coordinates.forEach(function (coordinate) {
+            if (!Array.isArray(coordinate) || coordinate.length < 2) return;
+            var x = Number(coordinate[0]);
+            var y = Number(coordinate[1]);
+            if (Number.isFinite(x) && Number.isFinite(y)) points.push(x + " " + y);
+        });
+        if (points.length >= 2) lines.push("(" + points.join(", ") + ")");
+    }
+
+    features.forEach(function (feature) {
+        var geometry = feature && feature.geometry ? feature.geometry : {};
+        if (geometry.type === "LineString") appendLine(geometry.coordinates);
+        else if (geometry.type === "MultiLineString" && Array.isArray(geometry.coordinates)) {
+            geometry.coordinates.forEach(appendLine);
+        }
+    });
+    return lines.length > 0 ? "MULTILINESTRING (" + lines.join(", ") + ")" : "";
 }
 
 function normalizeJobStatus(value) {

@@ -5,13 +5,14 @@ import QtCore
 import org.qfield
 import org.qgis
 import Theme
+import "qrc:/qml" as QFieldItems
 import "logic/DeepPipe.js" as DeepPipe
 
 Item {
     id: plugin
     objectName: "deepPipeMobilePlugin"
 
-    readonly property string pluginVersion: "0.5.12"
+    readonly property string pluginVersion: "0.5.13"
     readonly property string defaultApiBaseUrl: "https://lab.yyworkshop.com/predapi"
     readonly property string defaultPassApiBaseUrl: "https://lab.yyworkshop.com"
 
@@ -56,6 +57,7 @@ Item {
     property var predictionResultLayers: []
     property string predictionExportGeoJson: ""
     property var predictionExportCrs: null
+    property var predictionAttributeTable: ({ columns: [], rows: [] })
     property string predictionResultLayerName: ""
     property string lastPredictionExportPath: ""
     property string lastCompletedJobId: ""
@@ -95,6 +97,32 @@ Item {
     property string rasterMessage: "No PyPASS raster has been added by the plugin."
 
     property bool selectionMutationInProgress: false
+
+    // QField 4.2 does not expose vector-renderer mutation to app-wide QML
+    // plugins. These two non-interactive map overlays provide the exact result
+    // colors while the underlying memory layers retain all attributes and
+    // remain available to QField's identify workflow.
+    QFieldItems.GeometryRenderer {
+        id: predictedResultOverlay
+        parent: mapCanvas ? mapCanvas : plugin
+        anchors.fill: parent
+        mapSettings: mapCanvas ? mapCanvas.mapSettings : null
+        color: "#005035"
+        lineWidth: 5.5
+        visible: plugin.predictionResultLayers.length > 0
+        z: 9000
+    }
+
+    QFieldItems.GeometryRenderer {
+        id: potentialResultOverlay
+        parent: mapCanvas ? mapCanvas : plugin
+        anchors.fill: parent
+        mapSettings: mapCanvas ? mapCanvas.mapSettings : null
+        color: "#F4C430"
+        lineWidth: 5.5
+        visible: plugin.predictionResultLayers.length > 0
+        z: 9001
+    }
 
     Settings {
         id: appSettings
@@ -1069,7 +1097,7 @@ Item {
         rasterMessage = "No PyPASS raster has been added by the plugin.";
     }
 
-    function removePredictionLayer() {
+    function removePredictionLayer(preserveCompletedJob) {
         if (qgisProject) {
             var layers = Array.isArray(predictionResultLayers) ? predictionResultLayers : [];
             layers.forEach(function (layer) {
@@ -1083,9 +1111,22 @@ Item {
         predictionResultLayers = [];
         predictionExportGeoJson = "";
         predictionExportCrs = null;
+        predictionAttributeTable = ({ columns: [], rows: [] });
         predictionResultLayerName = "";
         lastPredictionExportPath = "";
-        lastCompletedJobId = "";
+        if (!preserveCompletedJob) lastCompletedJobId = "";
+        predictedResultOverlay.geometryWrapper.clear();
+        potentialResultOverlay.geometryWrapper.clear();
+    }
+
+    function setPredictionOverlayGeometry(renderer, featureCollection, crs) {
+        renderer.geometryWrapper.clear();
+        var wkt = DeepPipe.featureCollectionMultiLineWkt(featureCollection);
+        if (!wkt) return;
+        var geometry = GeometryUtils.createGeometryFromWkt(wkt);
+        if (!geometry) return;
+        renderer.geometryWrapper.crs = crs;
+        renderer.geometryWrapper.qgsGeometry = geometry;
     }
 
     function createPredictionResultLayers(featureCollection, crs, baseName, threshold) {
@@ -1100,13 +1141,11 @@ Item {
             crs: featureCollection.crs,
             features: partitions.predicted.features
                       .concat(partitions.potential.features)
-                      .concat(partitions.unknown.features)
         };
 
         var specifications = [
             { suffix: "Predicted", collection: partitions.predicted, opacity: 1.0 },
-            { suffix: "Potential", collection: partitions.potential, opacity: 0.42 },
-            { suffix: "Unknown", collection: partitions.unknown, opacity: 0.68 }
+            { suffix: "Potential", collection: partitions.potential, opacity: 1.0 }
         ];
         var addedLayers = [];
         var addedNames = [];
@@ -1132,9 +1171,12 @@ Item {
 
         predictionExportGeoJson = JSON.stringify(decoratedCollection);
         predictionExportCrs = crs;
+        predictionAttributeTable = DeepPipe.predictionAttributeTable(decoratedCollection);
         predictionResultLayers = addedLayers;
         predictionResultLayer = addedLayers[0];
         predictionResultLayerName = addedNames.join(" + ");
+        setPredictionOverlayGeometry(predictedResultOverlay, partitions.predicted, crs);
+        setPredictionOverlayGeometry(potentialResultOverlay, partitions.potential, crs);
         return true;
     }
 
@@ -1178,6 +1220,21 @@ Item {
             return;
         }
         toast("The GeoJSON is saved at " + lastPredictionExportPath);
+    }
+
+    function downloadCompletedJobZip() {
+        if (!appSettings.useLiveApi || !lastCompletedJobId) {
+            toast("There is no completed live prediction ZIP to download.");
+            return;
+        }
+        var path = "/api/jobs/jobs/" + encodeURIComponent(lastCompletedJobId) + "/download";
+        var url = DeepPipe.apiUrl(defaultApiBaseUrl, path);
+        if (!url) {
+            toast("The completed-job download URL is invalid.");
+            return;
+        }
+        Qt.openUrlExternally(url);
+        toast("Opening the complete DeepPipe job ZIP in the device browser.");
     }
 
     function scheduleJobPoll(delayMs) {
@@ -1340,10 +1397,11 @@ Item {
             var result = DeepPipe.decorateLiveResult(payload, jobId, activeJobThreshold);
             var summary = DeepPipe.summarizeLiveResult(result, activeJobSelectedCount, activeJobThreshold);
             removePredictionLayer();
-            if (result.features.length === 0) {
+            if (summary.total === 0) {
+                lastCompletedJobId = jobId;
                 predictionSummary = summary;
                 predictionStatus = "succeeded";
-                predictionMessage = "Live API job " + jobId + " completed, but no pipes met the selected confidence threshold.";
+                predictionMessage = "Live API job " + jobId + " completed, but it returned no above-threshold GNN candidates with a final MST class.";
                 clearActiveJob();
                 toast("DeepPipe prediction completed with no returned pipes.");
                 return;
@@ -1364,7 +1422,7 @@ Item {
             lastCompletedJobId = jobId;
             predictionSummary = summary;
             predictionStatus = "succeeded";
-            predictionMessage = "Live API job " + jobId + " added " + result.features.length + " threshold-filtered pipe" + (result.features.length === 1 ? "" : "s") + " to the map.";
+            predictionMessage = "Live API job " + jobId + " added " + summary.predicted + " Predicted and " + summary.potential + " Potential pipe" + (summary.total === 1 ? "" : "s") + " to the map.";
             clearActiveJob();
             toast("DeepPipe live prediction is ready.");
         });
@@ -1564,6 +1622,8 @@ Item {
             predictionSummary: plugin.predictionSummary
             predictionResultLayer: plugin.predictionResultLayerName
             predictionExportPath: plugin.lastPredictionExportPath
+            predictionAttributeTable: plugin.predictionAttributeTable
+            completedJobId: plugin.lastCompletedJobId
             predictionConfig: plugin.predictionConfig
             maxSearchRadius: plugin.predictionConfig.max_search_radius
             confidenceThreshold: plugin.predictionConfig.classification_threshold
@@ -1605,9 +1665,10 @@ Item {
             }
             onRunPredictionRequested: plugin.startPrediction()
             onCancelPredictionRequested: plugin.cancelLivePrediction()
-            onRemovePredictionLayerRequested: plugin.removePredictionLayer()
+            onRemovePredictionLayerRequested: plugin.removePredictionLayer(true)
             onExportPredictionRequested: plugin.exportPredictionResult()
             onSharePredictionExportRequested: plugin.sharePredictionExport()
+            onDownloadPredictionZipRequested: plugin.downloadCompletedJobZip()
             onPickAssessmentLocationRequested: plugin.startAssessmentLocationSelection()
             onUseGnssRequested: plugin.useCurrentGnssLocation()
             onAssessmentInputsRequested: function (diameter, gauge, materialId, minimumYears) {

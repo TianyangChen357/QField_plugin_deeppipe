@@ -25,6 +25,8 @@ Item {
     property var predictionSummary: null
     property string predictionResultLayer: ""
     property string predictionExportPath: ""
+    property var predictionAttributeTable: ({ columns: [], rows: [] })
+    property string completedJobId: ""
     property var predictionConfig: ({})
     property real maxSearchRadius: 500
     property real confidenceThreshold: 0.85
@@ -45,7 +47,7 @@ Item {
     property string rasterMessage: "No PyPASS raster has been added by the plugin."
     property var rasterLayerNames: []
     property string activeJobId: ""
-    property string pluginVersion: "0.5.12"
+    property string pluginVersion: "0.5.13"
 
     signal closeRequested()
     signal refreshProjectRequested()
@@ -61,6 +63,7 @@ Item {
     signal removePredictionLayerRequested()
     signal exportPredictionRequested()
     signal sharePredictionExportRequested()
+    signal downloadPredictionZipRequested()
     signal pickAssessmentLocationRequested()
     signal useGnssRequested()
     signal assessmentInputsRequested(real nominalDiameter, int gauge, string materialId, int minimumYears)
@@ -101,6 +104,34 @@ Item {
     property string assessmentMaterialName: "RCP"
     readonly property var neighborValues: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     readonly property var serviceLifeYearValues: [0, 10, 20, 30, 40, 50, 75, 100]
+
+    function attributeCellText(value) {
+        if (value === undefined || value === null || value === "") return "—";
+        if (typeof value === "number") {
+            if (!Number.isFinite(value)) return "—";
+            return Math.abs(value) < 1000000 ? String(Number(value.toFixed(6))) : String(value);
+        }
+        if (typeof value === "object") return JSON.stringify(value);
+        return String(value);
+    }
+
+    function attributeColumnWidth(key) {
+        if (key === "__row") return 58;
+        if (key === "deeppipe_outcome") return 112;
+        if (key === "node_u" || key === "node_v") return 116;
+        if (key === "prob" || key === "probability") return 132;
+        return 124;
+    }
+
+    function attributeTableWidth() {
+        var columns = predictionAttributeTable && Array.isArray(predictionAttributeTable.columns)
+                ? predictionAttributeTable.columns : [];
+        var width = 0;
+        for (var index = 0; index < columns.length; index += 1) {
+            width += attributeColumnWidth(columns[index].key);
+        }
+        return Math.max(width, 320);
+    }
 
     function predictionStatusColor() {
         if (predictionStatus === "succeeded") return success;
@@ -860,7 +891,7 @@ Item {
                                 }
                                 GridLayout {
                                     Layout.fillWidth: true
-                                    columns: 4
+                                    columns: 3
                                     visible: panel.predictionSummary !== null
                                     columnSpacing: 8
                                     rowSpacing: 4
@@ -868,46 +899,33 @@ Item {
                                     Text { text: "Selected"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: "Predicted"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: "Potential"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
-                                    Text { text: "Unknown"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: panel.predictionSummary ? panel.predictionSummary.selectedInlets : "—"; color: panel.ink; font.pixelSize: 20; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: panel.predictionSummary ? panel.predictionSummary.predicted : "—"; color: panel.success; font.pixelSize: 20; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text {
-                                        text: panel.predictionSummary && panel.predictionSummary.potential !== null && panel.predictionSummary.potential !== undefined
-                                              ? panel.predictionSummary.potential : "—"
+                                        text: panel.predictionSummary ? panel.predictionSummary.potential : "—"
                                         color: panel.warning
                                         font.pixelSize: 20
                                         font.bold: true
                                         Layout.fillWidth: true
                                         horizontalAlignment: Text.AlignHCenter
                                     }
-                                    Text {
-                                        text: panel.predictionSummary && panel.predictionSummary.unknown !== undefined
-                                              ? panel.predictionSummary.unknown : "—"
-                                        color: panel.mutedInk
-                                        font.pixelSize: 20
-                                        font.bold: true
-                                        Layout.fillWidth: true
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    visible: !panel.mockMode && panel.predictionSummary !== null &&
-                                             (panel.predictionSummary.potential === null || panel.predictionSummary.potential === undefined)
-                                    text: "The API returns only pipes at or above the selected threshold; the potential-pipe count is not available."
+                                    visible: panel.predictionSummary !== null
+                                    text: "Predicted = above-threshold GNN candidates retained by MST. Potential = above-threshold GNN candidates not retained by MST."
                                     color: panel.mutedInk
                                     font.pixelSize: 11
                                     wrapMode: Text.WordWrap
                                 }
-                                Text {
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    visible: panel.predictionSummary !== null &&
-                                             panel.predictionSummary.potential !== null &&
-                                             panel.predictionSummary.potential > 0
-                                    text: "Predicted pipes use the normal result-layer opacity; potential pipes are placed in a separate semi-transparent layer."
-                                    color: panel.mutedInk
-                                    font.pixelSize: 11
-                                    wrapMode: Text.WordWrap
+                                    visible: panel.predictionResultLayer.length > 0
+                                    spacing: 14
+                                    Rectangle { Layout.preferredWidth: 18; Layout.preferredHeight: 6; radius: 3; color: panel.charlotteGreen }
+                                    Text { text: "Predicted"; color: panel.ink; font.pixelSize: 12 }
+                                    Rectangle { Layout.preferredWidth: 18; Layout.preferredHeight: 6; radius: 3; color: "#F4C430" }
+                                    Text { text: "Potential"; color: panel.ink; font.pixelSize: 12; Layout.fillWidth: true }
                                 }
                                 Text {
                                     Layout.fillWidth: true
@@ -918,6 +936,36 @@ Item {
                                     color: panel.mutedInk
                                     font.pixelSize: 12
                                     elide: Text.ElideMiddle
+                                }
+                                Button {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    text: "View result attribute table"
+                                    visible: panel.predictionAttributeTable &&
+                                             Array.isArray(panel.predictionAttributeTable.rows) &&
+                                             panel.predictionAttributeTable.rows.length > 0
+                                    font.bold: true
+                                    palette.button: panel.primary
+                                    palette.buttonText: "white"
+                                    onClicked: resultTablePopup.open()
+                                }
+                                Button {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 50
+                                    text: "Download complete job ZIP"
+                                    visible: !panel.mockMode && panel.completedJobId.length > 0
+                                    font.bold: true
+                                    palette.button: panel.accent
+                                    palette.buttonText: panel.oreBlack
+                                    onClicked: panel.downloadPredictionZipRequested()
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    visible: !panel.mockMode && panel.completedJobId.length > 0
+                                    text: "The ZIP is supplied by the Prediction API and contains the job's Structures.geojson, Pipes.geojson, and log.txt files."
+                                    color: panel.mutedInk
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WordWrap
                                 }
                                 Button {
                                     Layout.fillWidth: true
@@ -1773,6 +1821,185 @@ Item {
     }
 
     Popup {
+        id: resultTablePopup
+        parent: panel
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        width: Math.min(panel.width - 16, 720)
+        height: Math.min(panel.height - 40, 680)
+        x: (panel.width - width) / 2
+        y: Math.max(8, (panel.height - height) / 2)
+
+        background: Rectangle {
+            radius: 16
+            color: panel.surface
+            border.color: panel.charlotteGreen
+            border.width: 2
+        }
+
+        contentItem: ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 14
+            spacing: 9
+
+            RowLayout {
+                Layout.fillWidth: true
+                Text {
+                    Layout.fillWidth: true
+                    text: "Prediction result attributes"
+                    color: panel.ink
+                    font.pixelSize: 18
+                    font.bold: true
+                }
+                Button {
+                    Layout.preferredWidth: 72
+                    Layout.preferredHeight: 40
+                    text: "Close"
+                    onClicked: resultTablePopup.close()
+                }
+            }
+
+            Text {
+                Layout.fillWidth: true
+                text: {
+                    var rows = panel.predictionAttributeTable && Array.isArray(panel.predictionAttributeTable.rows)
+                            ? panel.predictionAttributeTable.rows.length : 0;
+                    var columns = panel.predictionAttributeTable && Array.isArray(panel.predictionAttributeTable.columns)
+                            ? panel.predictionAttributeTable.columns.length : 0;
+                    return rows + " pipe" + (rows === 1 ? "" : "s") + " · " + columns + " fields · swipe horizontally and vertically";
+                }
+                color: panel.mutedInk
+                font.pixelSize: 12
+                wrapMode: Text.WordWrap
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: 34
+                radius: 8
+                color: "#F7F9F8"
+                border.color: panel.divider
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: 10
+                    anchors.rightMargin: 10
+                    Rectangle { Layout.preferredWidth: 18; Layout.preferredHeight: 6; radius: 3; color: panel.charlotteGreen }
+                    Text { text: "Predicted"; color: panel.ink; font.pixelSize: 11 }
+                    Rectangle { Layout.preferredWidth: 18; Layout.preferredHeight: 6; radius: 3; color: "#F4C430" }
+                    Text { text: "Potential"; color: panel.ink; font.pixelSize: 11; Layout.fillWidth: true }
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+
+                Flickable {
+                    id: resultTableHorizontal
+                    anchors.fill: parent
+                    clip: true
+                    contentWidth: panel.attributeTableWidth()
+                    contentHeight: height
+                    flickableDirection: Flickable.HorizontalFlick
+                    boundsBehavior: Flickable.StopAtBounds
+
+                    Item {
+                        width: resultTableHorizontal.contentWidth
+                        height: resultTableHorizontal.height
+
+                        Rectangle {
+                            id: resultTableHeader
+                            width: parent.width
+                            height: 44
+                            color: panel.charlotteGreen
+
+                            Row {
+                                anchors.fill: parent
+                                Repeater {
+                                    model: panel.predictionAttributeTable && Array.isArray(panel.predictionAttributeTable.columns)
+                                           ? panel.predictionAttributeTable.columns : []
+                                    delegate: Rectangle {
+                                        property var columnInfo: modelData
+                                        width: panel.attributeColumnWidth(columnInfo.key)
+                                        height: resultTableHeader.height
+                                        color: "transparent"
+                                        border.color: "#4DFFFFFF"
+                                        Text {
+                                            anchors.fill: parent
+                                            anchors.margins: 6
+                                            text: columnInfo.label
+                                            color: "white"
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                            verticalAlignment: Text.AlignVCenter
+                                            horizontalAlignment: Text.AlignLeft
+                                            wrapMode: Text.WordWrap
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        ListView {
+                            id: resultAttributeRows
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: resultTableHeader.bottom
+                            anchors.bottom: parent.bottom
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+                            model: panel.predictionAttributeTable && Array.isArray(panel.predictionAttributeTable.rows)
+                                   ? panel.predictionAttributeTable.rows : []
+                            ScrollBar.vertical: ScrollBar {}
+
+                            delegate: Rectangle {
+                                id: attributeRow
+                                property var rowValues: modelData
+                                width: resultAttributeRows.width
+                                height: 44
+                                color: index % 2 === 0 ? panel.surface : "#F4F7F5"
+
+                                Row {
+                                    anchors.fill: parent
+                                    Repeater {
+                                        model: panel.predictionAttributeTable && Array.isArray(panel.predictionAttributeTable.columns)
+                                               ? panel.predictionAttributeTable.columns : []
+                                        delegate: Rectangle {
+                                            property var columnInfo: modelData
+                                            property string cellValue: panel.attributeCellText(attributeRow.rowValues[columnInfo.key])
+                                            width: panel.attributeColumnWidth(columnInfo.key)
+                                            height: attributeRow.height
+                                            color: "transparent"
+                                            border.color: panel.divider
+                                            Text {
+                                                anchors.fill: parent
+                                                anchors.margins: 6
+                                                text: parent.cellValue
+                                                color: parent.columnInfo.key === "deeppipe_outcome"
+                                                       ? (parent.cellValue === "predicted" ? panel.charlotteGreen : panel.warning)
+                                                       : panel.ink
+                                                font.pixelSize: 11
+                                                font.bold: parent.columnInfo.key === "deeppipe_outcome"
+                                                verticalAlignment: Text.AlignVCenter
+                                                elide: Text.ElideRight
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    ScrollBar.horizontal: ScrollBar {}
+                }
+            }
+        }
+    }
+
+    Popup {
         id: guidePopup
         parent: panel
         modal: true
@@ -1855,6 +2082,13 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         text: "Prediction settings start with GNN, 500 ft, confidence 0.85, k=12, MST enabled, and 50% GNN probability / 50% length weighting. You can adjust these values before running the prediction."
+                        color: panel.ink
+                        font.pixelSize: 13
+                        wrapMode: Text.WordWrap
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: "Results show only GNN-positive pipes at or above the selected confidence threshold. Green Predicted pipes were retained by MST; yellow Potential pipes passed the GNN threshold but were not retained by MST. Use View result attribute table for every returned field, or Download complete job ZIP for the server files."
                         color: panel.ink
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap

@@ -36,6 +36,7 @@ assert.ok(openApi.paths["/api/pred/pred_deep"]?.post);
 assert.ok(openApi.paths["/api/jobs/jobs/{task_id}/status"]?.get);
 assert.ok(openApi.paths["/api/jobs/jobs/{task_id}/files"]?.get);
 assert.ok(openApi.paths["/api/jobs/jobs/{task_id}/geojson/{filename}"]?.get);
+assert.ok(openApi.paths["/api/jobs/jobs/{task_id}/download"]?.get);
 
 const submitOperation = openApi.paths["/api/pred/pred_deep"].post;
 assert.ok(submitOperation.requestBody.content["application/json"]);
