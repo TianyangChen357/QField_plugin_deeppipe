@@ -1,4 +1,4 @@
-# DeepPipe Mobile 0.5.11 test matrix
+# DeepPipe Mobile 0.5.12 test matrix
 
 ## Baseline
 
@@ -14,11 +14,12 @@ Use only synthetic/non-sensitive inlets against the current unauthenticated test
 
 | Test | Expected |
 |---|---|
-| Install `deeppipe-mobile-v0.5.11.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
+| Install `deeppipe-mobile-v0.5.12.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
 | Open QField with no project | Toolbar/panel stay safe and report that a project must be opened. |
 | Open a plain project with no point layer | Configuration explains that an inlet point layer is required; Assessment remains available once a map project is open. |
 | Open a plain project with one/multiple point layers | Configuration suggests or lists point layers; user can choose a layer and ID field without editing project XML. |
 | Confirm setup, close, and reopen | The same project mapping is restored on this device. |
+| Open Pipeline Prediction after setup | The configured inlet layer is shown in the selection instructions; no second layer chooser is present. |
 | Open demo project | `Inlets` and `inlet_uuid` resolve from project defaults. |
 | Switch to another ordinary project | Selection/result state clears; the other project gets its own mapping; a server job is not silently cancelled. |
 | Open two same-title projects at different paths | Their mappings, prediction settings, and pending jobs do not cross-contaminate. |
@@ -44,7 +45,7 @@ Use only synthetic/non-sensitive inlets against the current unauthenticated test
 | Rapid double tap | Handler throttles and QField remains responsive. |
 | Native selection exists first | Starting DeepPipe selection imports it. |
 | Local unsynchronized inlet | Saved local feature can be selected and submitted. |
-| Project CRS differs from inlet CRS | Tap hit-testing remains correct after rectangle reprojection. |
+| Project CRS differs from inlet CRS | Tap hit-testing remains correct after `QgsPoint` screen-bound conversion and rectangle reprojection. |
 | Choose a non-point layer | It is absent from the inlet-layer chooser. |
 
 Test both EPSG:4326 and a projected North Carolina inlet layer. The current hit rectangle is 16 logical pixels around the tap.

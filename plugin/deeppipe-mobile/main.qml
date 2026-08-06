@@ -11,7 +11,7 @@ Item {
     id: plugin
     objectName: "deepPipeMobilePlugin"
 
-    readonly property string pluginVersion: "0.5.11"
+    readonly property string pluginVersion: "0.5.12"
     readonly property string defaultApiBaseUrl: "https://lab.yyworkshop.com/predapi"
     readonly property string defaultPassApiBaseUrl: "https://lab.yyworkshop.com"
 
@@ -725,9 +725,12 @@ Item {
             maximumX = Math.max(maximumX, Number(corner.x));
             maximumY = Math.max(maximumY, Number(corner.y));
         });
+        // createRectangleFromPoints() requires QgsPoint values. Qt.point()
+        // creates QPointF values, which some QField builds cannot convert and
+        // therefore yields an empty feature query for Tap, Box, and Visible.
         return GeometryUtils.createRectangleFromPoints(
-                    Qt.point(minimumX, minimumY),
-                    Qt.point(maximumX, maximumY));
+                    GeometryUtils.point(minimumX, minimumY),
+                    GeometryUtils.point(maximumX, maximumY));
     }
 
     function recordsInScreenRectangle(startPoint, endPoint) {

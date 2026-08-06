@@ -45,7 +45,7 @@ Item {
     property string rasterMessage: "No PyPASS raster has been added by the plugin."
     property var rasterLayerNames: []
     property string activeJobId: ""
-    property string pluginVersion: "0.5.11"
+    property string pluginVersion: "0.5.12"
 
     signal closeRequested()
     signal refreshProjectRequested()
@@ -167,7 +167,10 @@ Item {
             k_neighbors: Number(neighborsBox.currentText),
             with_mst: mstSwitch.checked,
             prob_weight: probabilityWeightSlider.value,
-            elev_weight: elevationWeightSlider.value,
+            // Elevation is intentionally fixed at zero in the mobile preset.
+            // The API field remains present for contract compatibility, while
+            // users control only GNN probability and length weighting.
+            elev_weight: 0,
             length_weight: lengthWeightSlider.value
         });
     }
@@ -474,83 +477,6 @@ Item {
                             Layout.fillWidth: true
                             Layout.leftMargin: 14
                             Layout.rightMargin: 14
-                            Layout.preferredHeight: sourceColumn.implicitHeight + 28
-                            radius: 14
-                            color: panel.surface
-                            border.color: panel.divider
-
-                            ColumnLayout {
-                                id: sourceColumn
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.top: parent.top
-                                anchors.margins: 14
-                                spacing: 10
-
-                                Text {
-                                    text: "1  Choose the field inlet layer"
-                                    color: panel.ink
-                                    font.pixelSize: 16
-                                    font.bold: true
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: "Points saved locally in QField can be used immediately; they do not need to be exported as a list first."
-                                    color: panel.mutedInk
-                                    font.pixelSize: 13
-                                    wrapMode: Text.WordWrap
-                                }
-                                ComboBox {
-                                    id: predictionLayerBox
-                                    Layout.fillWidth: true
-                                    implicitHeight: 50
-                                    enabled: panel.hasProject && panel.layerNames.length > 0 && !panel.predictionBusy()
-                                    model: panel.layerNames
-                                    currentIndex: panel.layerIds.indexOf(panel.inletLayerId)
-                                    Accessible.name: "Inlet layer"
-                                    palette.text: panel.ink
-                                    palette.buttonText: panel.ink
-                                    palette.highlight: panel.charlotteGreen
-                                    palette.highlightedText: panel.quartzWhite
-                                    palette.base: panel.surface
-                                    palette.alternateBase: panel.canvas
-                                    contentItem: Text {
-                                        leftPadding: 14
-                                        rightPadding: 42
-                                        text: predictionLayerBox.displayText
-                                        color: predictionLayerBox.enabled ? panel.ink : panel.mutedInk
-                                        font.pixelSize: 14
-                                        verticalAlignment: Text.AlignVCenter
-                                        elide: Text.ElideRight
-                                    }
-                                    background: Rectangle {
-                                        radius: 8
-                                        color: predictionLayerBox.enabled ? panel.surface : panel.disabledSurface
-                                        border.color: predictionLayerBox.activeFocus ? panel.ninerGold : panel.divider
-                                        border.width: predictionLayerBox.activeFocus ? 2 : 1
-                                    }
-                                    indicator: Text {
-                                        x: predictionLayerBox.width - width - 14
-                                        y: (predictionLayerBox.height - height) / 2
-                                        text: "▾"
-                                        color: predictionLayerBox.enabled ? panel.charlotteGreen : panel.mutedInk
-                                        font.pixelSize: 16
-                                    }
-                                    onActivated: panel.inletLayerRequested(panel.layerIds[currentIndex])
-                                }
-                                Text {
-                                    text: "ID field: " + (panel.nodeIdField || "Not configured") +
-                                          (panel.nodeIdField.toLowerCase().indexOf("uuid") >= 0 ? " · UUID" : "")
-                                    color: panel.mutedInk
-                                    font.pixelSize: 12
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.leftMargin: 14
-                            Layout.rightMargin: 14
                             Layout.preferredHeight: selectionColumn.implicitHeight + 28
                             radius: 14
                             color: panel.surface
@@ -569,7 +495,7 @@ Item {
                                     Layout.fillWidth: true
                                     Text {
                                         Layout.fillWidth: true
-                                        text: "2  Select inlets on the map"
+                                        text: "1  Select inlets on the map"
                                         color: panel.ink
                                         font.pixelSize: 16
                                         font.bold: true
@@ -593,7 +519,8 @@ Item {
                                     Layout.fillWidth: true
                                     text: panel.inletSelectionActive
                                           ? "Selection mode is active. Use Tap, Box, or Visible on the map, then press Done."
-                                          : "Select individual inlets, drag a box around many points, or add every inlet currently visible. A minimum of three is required."
+                                          : "Using " + (panel.inletLayerName || "the inlet layer configured in Configuration") +
+                                            ". Select individual inlets, drag a box around many points, or add every inlet currently visible. A minimum of three is required."
                                     color: panel.mutedInk
                                     font.pixelSize: 13
                                     wrapMode: Text.WordWrap
@@ -637,7 +564,7 @@ Item {
                                 spacing: 10
 
                                 Text {
-                                    text: "3  Prediction settings"
+                                    text: "2  Prediction settings"
                                     color: panel.ink
                                     font.pixelSize: 16
                                     font.bold: true
@@ -821,7 +748,7 @@ Item {
                                 }
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Text { Layout.fillWidth: true; text: "Probability"; color: panel.ink; font.pixelSize: 13 }
+                                    Text { Layout.fillWidth: true; text: "GNN probability"; color: panel.ink; font.pixelSize: 13 }
                                     Text { text: Math.round(probabilityWeightSlider.value * 100) + "%"; color: panel.primary; font.pixelSize: 13; font.bold: true }
                                 }
                                 Slider {
@@ -831,22 +758,6 @@ Item {
                                     to: 1
                                     stepSize: 0.05
                                     value: panel.predictionConfig.prob_weight !== undefined ? panel.predictionConfig.prob_weight : 0.5
-                                    enabled: !panel.predictionBusy()
-                                    implicitHeight: 38
-                                    onMoved: panel.requestPredictionSettings()
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text { Layout.fillWidth: true; text: "Elevation"; color: panel.ink; font.pixelSize: 13 }
-                                    Text { text: Math.round(elevationWeightSlider.value * 100) + "%"; color: panel.primary; font.pixelSize: 13; font.bold: true }
-                                }
-                                Slider {
-                                    id: elevationWeightSlider
-                                    Layout.fillWidth: true
-                                    from: 0
-                                    to: 1
-                                    stepSize: 0.05
-                                    value: panel.predictionConfig.elev_weight !== undefined ? panel.predictionConfig.elev_weight : 0
                                     enabled: !panel.predictionBusy()
                                     implicitHeight: 38
                                     onMoved: panel.requestPredictionSettings()
@@ -869,7 +780,7 @@ Item {
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: "Default preset: GNN · k=12 · MST on · probability 50% · elevation 0% · length 50%."
+                                    text: "Default preset: GNN · k=12 · MST on · GNN probability 50% · length 50%."
                                     color: panel.mutedInk
                                     font.pixelSize: 12
                                     wrapMode: Text.WordWrap
@@ -1936,14 +1847,14 @@ Item {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "Tap Select inlets on map. Tap an inlet to add or remove one; choose Box and drag a rectangle to add many; choose Visible to add all inlets in the current map view. Press Done when finished. At least three valid inlets are required."
+                        text: "Pipeline Prediction automatically uses the inlet layer saved in Configuration. Tap Select inlets on map. Tap an inlet to add or remove one; choose Box and drag a rectangle to add many; choose Visible to add all inlets in the current map view. Press Done when finished. At least three valid inlets are required."
                         color: panel.ink
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "Prediction settings start with GNN, 500 ft, confidence 0.85, k=12, MST enabled, and 50% probability / 0% elevation / 50% length weighting. You can adjust these values before running the prediction."
+                        text: "Prediction settings start with GNN, 500 ft, confidence 0.85, k=12, MST enabled, and 50% GNN probability / 50% length weighting. You can adjust these values before running the prediction."
                         color: panel.ink
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap

@@ -27,7 +27,7 @@ DeepPipe app-wide plugin
   ├─ prediction / assessment state
   └─ transport boundary
           │
-          ├─ v0.5.11 live Prediction client + mock fallback
+          ├─ v0.5.12 live Prediction client + mock fallback
           ├─ live PyPASS point-assessment client
           └─ hosted PyPASS XYZ raster loader
                          │
@@ -39,7 +39,7 @@ The plugin never embeds the existing React/Leaflet portal. QField remains the so
 
 ## Mobile Prediction state
 
-1. Point layers are discovered in any open project. A saved device mapping or optional `DeepPipe` project entries are used when valid; otherwise the user confirms the inlet layer and ID field once.
+1. Point layers are discovered in any open project. A saved device mapping or optional `DeepPipe` project entries are used when valid; otherwise the user confirms the inlet layer and ID field once in **Configuration**. **Pipeline Prediction** consumes this mapping directly and does not present a second layer chooser.
 2. Saved mappings and service/raster settings are keyed by the exact project file path and layer ID. A project title is used only when the project truly has no path; different same-title project files never share state.
 3. User starts the explicit inlet-selection mode.
 4. The drawer closes. **Tap** toggles the nearest inlet in a 16-pixel search area, **Box** adds all inlets inside a dragged rectangle, and **Visible** adds all inlets in the current map view. Each action mirrors the batch snapshot to QGIS selection highlighting once.
@@ -56,7 +56,7 @@ app-wide fallback separates outcomes into layers and uses opacity. A production
 project can apply exact rule-based colors in pre-created result layers using
 the normalized fields.
 
-The selection handler is explicitly obtained from QField by object name, is active only during the map-selection state, is throttled to avoid rapid-tap re-entry, closes every feature iterator, and is deregistered when the plugin unloads. Box mode intentionally captures drag gestures until the user switches back to Tap mode.
+The selection handler is explicitly obtained from QField by object name, is active only during the map-selection state, is throttled to avoid rapid-tap re-entry, closes every feature iterator, and is deregistered when the plugin unloads. Tap, Box, and Visible convert screen bounds to a `QgsRectangle` using `QgsPoint` values from `GeometryUtils.point()` before querying the configured layer. Box mode intentionally captures drag gestures until the user switches back to Tap mode.
 
 ## Mobile Assessment state
 
@@ -66,7 +66,7 @@ The raster workflow retrieves current XYZ templates from the live PyPASS catalog
 
 ## Persistence plan
 
-The v0.5.11 task ID, device-local project mapping, and prediction settings are retained in app settings, but map result layers are still intentionally ephemeral. Users can save a combined GeoJSON result; the export is not automatically synchronized by QFieldCloud. Phone-local mapping does not synchronize to other devices; team-wide inlet defaults should be authored in the QGIS project. Production projects should pre-create GeoPackage layers for:
+The v0.5.12 task ID, device-local project mapping, and prediction settings are retained in app settings, but map result layers are still intentionally ephemeral. Users can save a combined GeoJSON result; the export is not automatically synchronized by QFieldCloud. Phone-local mapping does not synchronize to other devices; team-wide inlet defaults should be authored in the QGIS project. Production projects should pre-create GeoPackage layers for:
 
 - `deeppipe_predicted_pipes`
 - `deeppipe_predicted_structures`

@@ -12,12 +12,12 @@ for (const required of ["main.qml", "metadata.txt", "icon.svg", "DeepPipePanel.q
 }
 
 const metadata = fs.readFileSync(path.join(pluginRoot, "metadata.txt"), "utf8");
-for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.5.11", "icon=icon.svg"]) {
+for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.5.12", "icon=icon.svg"]) {
   assert.equal(metadata.includes(expected), true, `metadata.txt lacks ${expected}`);
 }
 
 const main = fs.readFileSync(path.join(pluginRoot, "main.qml"), "utf8");
-assert.equal(main.includes('readonly property string pluginVersion: "0.5.11"'), true, "main.qml has the wrong plugin version");
+assert.equal(main.includes('readonly property string pluginVersion: "0.5.12"'), true, "main.qml has the wrong plugin version");
 for (const expected of [
   "iface.addItemToPluginsToolbar",
   "handler.registerHandler",
@@ -43,6 +43,7 @@ for (const expected of [
   "/api/pypass/variables",
   "ensurePointHandlerRegistered",
   "mapRectangleFromScreenBounds",
+  "GeometryUtils.point(minimumX, minimumY)",
   "mapInteractionOverlay",
   "testApiConnections",
   "setPredictionConfig",
@@ -64,12 +65,13 @@ assert.equal(
   "main.qml exports into a child directory that the plugin does not create",
 );
 assert.equal(main.includes("MapCanvasPointHandler.Priority"), false, "main.qml references a QField-local QML type unavailable to app plugins");
+assert.equal(main.includes("Qt.point(minimumX, minimumY)"), false, "main.qml passes QPointF values to createRectangleFromPoints");
 for (const removed of ["remoteCog", "remote_cog", "gdalRemoteRasterUri", "apiBaseUrlRequested", "passApiBaseUrlRequested"]) {
   assert.equal(main.includes(removed), false, `main.qml retains removed configuration ${removed}`);
 }
 
 const panel = fs.readFileSync(path.join(pluginRoot, "DeepPipePanel.qml"), "utf8");
-assert.equal(panel.includes('property string pluginVersion: "0.5.11"'), true, "DeepPipePanel.qml has the wrong plugin version");
+assert.equal(panel.includes('property string pluginVersion: "0.5.12"'), true, "DeepPipePanel.qml has the wrong plugin version");
 for (const duplicateFontAssignment of ["font: setupTab.font", "font: predictionTab.font", "font: assessmentTab.font"]) {
   assert.equal(panel.includes(duplicateFontAssignment), false, `DeepPipePanel.qml retains ${duplicateFontAssignment}`);
 }
@@ -83,6 +85,9 @@ for (const expected of [
   "Check API status",
   "Number of neighbors (k)",
   "Enable MST post-processing",
+  "1  Select inlets on the map",
+  "2  Prediction settings",
+  "GNN probability",
   "Pipe material",
   "Not applicable for this material",
   "DeepPipe field guide",
@@ -91,6 +96,9 @@ for (const expected of [
   "Run live service-life assessment",
 ]) {
   assert.equal(panel.includes(expected), true, `DeepPipePanel.qml lacks ${expected}`);
+}
+for (const removed of ["predictionLayerBox", "Choose the field inlet layer", "elevationWeightSlider", 'text: "Elevation"']) {
+  assert.equal(panel.includes(removed), false, `DeepPipePanel.qml retains removed prediction UI ${removed}`);
 }
 
 const logic = fs.readFileSync(path.join(pluginRoot, "logic/DeepPipe.js"), "utf8");

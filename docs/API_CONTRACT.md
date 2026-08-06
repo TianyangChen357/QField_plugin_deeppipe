@@ -1,4 +1,4 @@
-# DeepPipe Mobile API contract — 0.5.11
+# DeepPipe Mobile API contract — 0.5.12
 
 Prediction was checked against `https://lab.yyworkshop.com/predapi/openapi.json`
 on 2026-07-31. PyPASS endpoints were checked live on 2026-08-04.
@@ -55,7 +55,7 @@ The QField plugin submits selected features directly; it does not call the separ
 }
 ```
 
-The 12-neighbor and 0.50/0.00/0.50 weights are the explicit DeepPipe Mobile preset. The deployed OpenAPI defaults are 3 and 0.15/0.00/0.85, but the service accepts the plugin preset because weights sum to 1.0.
+The 12-neighbor and 0.50/0.00/0.50 weights are the explicit DeepPipe Mobile preset. The mobile UI exposes only **GNN probability** and **Length**; `elev_weight` is fixed at `0.0` and remains in the request solely for API compatibility. The deployed OpenAPI defaults are 3 and 0.15/0.00/0.85, but the service accepts the plugin preset because weights sum to 1.0.
 
 The API returns HTTP 200 for a queued task:
 
