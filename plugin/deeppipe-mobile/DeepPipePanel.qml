@@ -320,8 +320,8 @@ Item {
                     contentItem: Text {
                         text: setupTab.text
                         color: setupTab.checked ? panel.quartzWhite : panel.charlotteGreen
-                        font: setupTab.font
                         font.pixelSize: 12
+                        font.bold: setupTab.checked
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         wrapMode: Text.WordWrap
@@ -351,8 +351,8 @@ Item {
                     contentItem: Text {
                         text: predictionTab.text
                         color: predictionTab.checked ? panel.quartzWhite : panel.charlotteGreen
-                        font: predictionTab.font
                         font.pixelSize: 12
+                        font.bold: predictionTab.checked
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         wrapMode: Text.WordWrap
@@ -382,8 +382,8 @@ Item {
                     contentItem: Text {
                         text: assessmentTab.text
                         color: assessmentTab.checked ? panel.quartzWhite : panel.charlotteGreen
-                        font: assessmentTab.font
                         font.pixelSize: 12
+                        font.bold: assessmentTab.checked
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                         wrapMode: Text.WordWrap
