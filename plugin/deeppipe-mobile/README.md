@@ -1,15 +1,15 @@
-# DeepPipe Mobile QField plugin — API test 0.5.0
+# DeepPipe Mobile QField plugin — API test 0.5.11
 
 This app-wide QField plugin provides two touch-first field workflows:
 
 1. select inlet points directly from the active QField project and submit them to the DeepPipe Prediction API; and
 2. choose a map/GNSS location and exercise the pipe service-life Assessment interface.
 
-Version 0.5.0 connects **Pipeline Prediction** and **Service Life Assessment** to their live APIs, adds result export, separates returned outcome classes into display layers, adds configurable model settings, and can add hosted PyPASS XYZ rasters.
+Version 0.5.11 connects **Pipeline Prediction** and **Service Life Assessment** to their live APIs, adds result export, separates returned outcome classes into display layers, adds configurable model settings, and can add hosted PyPASS XYZ rasters.
 
 ## Install
 
-Install `deeppipe-mobile-v0.5.0.zip`. Its `main.qml` is at the ZIP root, as required for an app-wide QField plugin.
+Install `deeppipe-mobile-v0.5.11.zip`. Its `main.qml` is at the ZIP root, as required for an app-wide QField plugin.
 
 1. Host the ZIP at an HTTPS URL reachable by the phone.
 2. In QField, open **Settings → Plugins → Install plugin from URL**.

@@ -45,7 +45,7 @@ Item {
     property string rasterMessage: "No PyPASS raster has been added by the plugin."
     property var rasterLayerNames: []
     property string activeJobId: ""
-    property string pluginVersion: "0.5.0"
+    property string pluginVersion: "0.5.11"
 
     signal closeRequested()
     signal refreshProjectRequested()

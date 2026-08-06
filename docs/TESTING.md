@@ -1,4 +1,4 @@
-# DeepPipe Mobile 0.5.0 test matrix
+# DeepPipe Mobile 0.5.11 test matrix
 
 ## Baseline
 
@@ -14,7 +14,7 @@ Use only synthetic/non-sensitive inlets against the current unauthenticated test
 
 | Test | Expected |
 |---|---|
-| Install `deeppipe-mobile-v0.5.0.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
+| Install `deeppipe-mobile-v0.5.11.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
 | Open QField with no project | Toolbar/panel stay safe and report that a project must be opened. |
 | Open a plain project with no point layer | Configuration explains that an inlet point layer is required; Assessment remains available once a map project is open. |
 | Open a plain project with one/multiple point layers | Configuration suggests or lists point layers; user can choose a layer and ID field without editing project XML. |

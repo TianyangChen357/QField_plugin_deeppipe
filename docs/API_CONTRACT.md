@@ -1,4 +1,4 @@
-# DeepPipe Mobile API contract — 0.5.0
+# DeepPipe Mobile API contract — 0.5.11
 
 Prediction was checked against `https://lab.yyworkshop.com/predapi/openapi.json`
 on 2026-07-31. PyPASS endpoints were checked live on 2026-08-04.

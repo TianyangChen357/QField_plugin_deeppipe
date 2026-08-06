@@ -11,7 +11,7 @@ Item {
     id: plugin
     objectName: "deepPipeMobilePlugin"
 
-    readonly property string pluginVersion: "0.5.0"
+    readonly property string pluginVersion: "0.5.11"
     readonly property string defaultApiBaseUrl: "https://lab.yyworkshop.com/predapi"
     readonly property string defaultPassApiBaseUrl: "https://lab.yyworkshop.com"
 

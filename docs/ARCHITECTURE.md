@@ -27,7 +27,7 @@ DeepPipe app-wide plugin
   ├─ prediction / assessment state
   └─ transport boundary
           │
-          ├─ v0.5 live Prediction client + mock fallback
+          ├─ v0.5.11 live Prediction client + mock fallback
           ├─ live PyPASS point-assessment client
           └─ hosted PyPASS XYZ raster loader
                          │
@@ -66,7 +66,7 @@ The raster workflow retrieves current XYZ templates from the live PyPASS catalog
 
 ## Persistence plan
 
-The v0.5 task ID, device-local project mapping, and prediction settings are retained in app settings, but map result layers are still intentionally ephemeral. Users can save a combined GeoJSON result; the export is not automatically synchronized by QFieldCloud. Phone-local mapping does not synchronize to other devices; team-wide inlet defaults should be authored in the QGIS project. Production projects should pre-create GeoPackage layers for:
+The v0.5.11 task ID, device-local project mapping, and prediction settings are retained in app settings, but map result layers are still intentionally ephemeral. Users can save a combined GeoJSON result; the export is not automatically synchronized by QFieldCloud. Phone-local mapping does not synchronize to other devices; team-wide inlet defaults should be authored in the QGIS project. Production projects should pre-create GeoPackage layers for:
 
 - `deeppipe_predicted_pipes`
 - `deeppipe_predicted_structures`
