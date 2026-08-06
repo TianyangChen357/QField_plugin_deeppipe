@@ -1559,8 +1559,9 @@ Item {
         id: pluginButton
         objectName: "deepPipeMobileButton"
         iconSource: "icon.svg"
-        iconColor: Theme.mainColor
-        bgcolor: Theme.darkGray
+        // UNC Charlotte digital palette: Charlotte Green with a Quartz White icon.
+        iconColor: "#FFFFFF"
+        bgcolor: "#005035"
         round: true
 
         onClicked: {

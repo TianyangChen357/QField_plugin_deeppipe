@@ -76,17 +76,30 @@ Item {
     signal apiModeRequested(bool enabled)
     signal testApiRequested()
 
-    readonly property color ink: "#17332E"
-    readonly property color mutedInk: "#61736F"
-    readonly property color surface: "#FFFFFF"
-    readonly property color canvas: "#F3F6F5"
-    readonly property color primary: "#087565"
-    readonly property color primaryDark: "#075B50"
-    readonly property color accent: "#F2B84B"
-    readonly property color divider: "#DDE5E2"
-    readonly property color success: "#157A55"
-    readonly property color warning: "#A56600"
-    readonly property color danger: "#B43B32"
+    // UNC Charlotte brand colors. The official digital palette uses Charlotte
+    // Green and Niner Gold as the primary colors, with Quartz White and Ore
+    // Black for high-contrast surfaces and text.
+    readonly property color charlotteGreen: "#005035"
+    readonly property color ninerGold: "#A49665"
+    readonly property color quartzWhite: "#FFFFFF"
+    readonly property color oreBlack: "#101820"
+    readonly property color jasper: "#F1E6B2"
+    readonly property color pineGreen: "#899064"
+    readonly property color skyBlue: "#007377"
+    readonly property color clayRed: "#802F2D"
+
+    readonly property color ink: oreBlack
+    readonly property color mutedInk: "#4B5D56"
+    readonly property color surface: quartzWhite
+    readonly property color canvas: "#F4F6F4"
+    readonly property color primary: charlotteGreen
+    readonly property color primaryDark: "#003D29"
+    readonly property color accent: ninerGold
+    readonly property color divider: "#CFD9D3"
+    readonly property color success: charlotteGreen
+    readonly property color warning: "#735900"
+    readonly property color danger: clayRed
+    readonly property color disabledSurface: "#EEF2EF"
     readonly property var passMaterialIds: ["rcp", "cast_iron", "plastic", "galvanized", "aluminized_csp", "aluminum", "steel"]
     readonly property var passMaterialNames: ["RCP", "Cast Iron", "HDPE / PP / PVC", "Galvanized", "Aluminized CSP", "Aluminum", "Steel"]
     readonly property var gaugeValues: [8, 10, 12, 14, 16, 18]
@@ -218,12 +231,30 @@ Item {
                         }
                     }
 
-                    ToolButton {
-                        Layout.preferredWidth: 48
-                        Layout.preferredHeight: 48
-                        text: "×"
-                        font.pixelSize: 28
+                    Button {
+                        id: closeButton
+                        Layout.preferredWidth: 84
+                        Layout.preferredHeight: 42
+                        text: "Close"
+                        font.pixelSize: 14
+                        font.bold: true
                         Accessible.name: "Close DeepPipe"
+
+                        contentItem: Text {
+                            text: closeButton.text
+                            color: panel.quartzWhite
+                            font: closeButton.font
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            radius: 9
+                            color: closeButton.down ? panel.primaryDark : panel.primary
+                            border.color: panel.ninerGold
+                            border.width: 1
+                        }
+
                         onClicked: panel.closeRequested()
                     }
                 }
@@ -233,22 +264,95 @@ Item {
                 id: tabBar
                 Layout.fillWidth: true
                 Layout.preferredHeight: 52
-                background: Rectangle { color: panel.surface }
+                background: Rectangle {
+                    color: panel.surface
+                    border.color: panel.divider
+                    border.width: 1
+                }
 
                 TabButton {
+                    id: predictionTab
                     text: "Prediction"
                     font.bold: checked
                     height: 52
+
+                    contentItem: Text {
+                        text: predictionTab.text
+                        color: predictionTab.checked ? panel.quartzWhite : panel.charlotteGreen
+                        font: predictionTab.font
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: predictionTab.checked ? panel.charlotteGreen : panel.surface
+                        border.color: predictionTab.checked ? panel.charlotteGreen : panel.divider
+                        border.width: 1
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 3
+                            color: panel.ninerGold
+                            visible: predictionTab.checked
+                        }
+                    }
                 }
                 TabButton {
+                    id: assessmentTab
                     text: "Assessment"
                     font.bold: checked
                     height: 52
+
+                    contentItem: Text {
+                        text: assessmentTab.text
+                        color: assessmentTab.checked ? panel.quartzWhite : panel.charlotteGreen
+                        font: assessmentTab.font
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: assessmentTab.checked ? panel.charlotteGreen : panel.surface
+                        border.color: assessmentTab.checked ? panel.charlotteGreen : panel.divider
+                        border.width: 1
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 3
+                            color: panel.ninerGold
+                            visible: assessmentTab.checked
+                        }
+                    }
                 }
                 TabButton {
+                    id: setupTab
                     text: "Setup"
                     font.bold: checked
                     height: 52
+
+                    contentItem: Text {
+                        text: setupTab.text
+                        color: setupTab.checked ? panel.quartzWhite : panel.charlotteGreen
+                        font: setupTab.font
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        color: setupTab.checked ? panel.charlotteGreen : panel.surface
+                        border.color: setupTab.checked ? panel.charlotteGreen : panel.divider
+                        border.width: 1
+                        Rectangle {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            height: 3
+                            color: panel.ninerGold
+                            visible: setupTab.checked
+                        }
+                    }
                 }
             }
 
@@ -345,12 +449,41 @@ Item {
                                     wrapMode: Text.WordWrap
                                 }
                                 ComboBox {
+                                    id: predictionLayerBox
                                     Layout.fillWidth: true
                                     implicitHeight: 50
                                     enabled: panel.hasProject && panel.layerNames.length > 0 && !panel.predictionBusy()
                                     model: panel.layerNames
                                     currentIndex: panel.layerIds.indexOf(panel.inletLayerId)
                                     Accessible.name: "Inlet layer"
+                                    palette.text: panel.ink
+                                    palette.buttonText: panel.ink
+                                    palette.highlight: panel.charlotteGreen
+                                    palette.highlightedText: panel.quartzWhite
+                                    palette.base: panel.surface
+                                    palette.alternateBase: panel.canvas
+                                    contentItem: Text {
+                                        leftPadding: 14
+                                        rightPadding: 42
+                                        text: predictionLayerBox.displayText
+                                        color: predictionLayerBox.enabled ? panel.ink : panel.mutedInk
+                                        font.pixelSize: 14
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: predictionLayerBox.enabled ? panel.surface : panel.disabledSurface
+                                        border.color: predictionLayerBox.activeFocus ? panel.ninerGold : panel.divider
+                                        border.width: predictionLayerBox.activeFocus ? 2 : 1
+                                    }
+                                    indicator: Text {
+                                        x: predictionLayerBox.width - width - 14
+                                        y: (predictionLayerBox.height - height) / 2
+                                        text: "▾"
+                                        color: predictionLayerBox.enabled ? panel.charlotteGreen : panel.mutedInk
+                                        font.pixelSize: 16
+                                    }
                                     onActivated: panel.inletLayerRequested(panel.layerIds[currentIndex])
                                 }
                                 Text {
@@ -844,6 +977,33 @@ Item {
                                     model: panel.gaugeValues
                                     currentIndex: panel.gaugeValues.indexOf(panel.assessmentGauge)
                                     enabled: !panel.assessmentBusy()
+                                    palette.text: panel.ink
+                                    palette.buttonText: panel.ink
+                                    palette.highlight: panel.charlotteGreen
+                                    palette.highlightedText: panel.quartzWhite
+                                    palette.base: panel.surface
+                                    palette.alternateBase: panel.canvas
+                                    contentItem: Text {
+                                        leftPadding: 14
+                                        rightPadding: 42
+                                        text: assessmentGaugeBox.displayText
+                                        color: assessmentGaugeBox.enabled ? panel.ink : panel.mutedInk
+                                        font.pixelSize: 14
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: assessmentGaugeBox.enabled ? panel.surface : panel.disabledSurface
+                                        border.color: assessmentGaugeBox.activeFocus ? panel.ninerGold : panel.divider
+                                        border.width: assessmentGaugeBox.activeFocus ? 2 : 1
+                                    }
+                                    indicator: Text {
+                                        x: assessmentGaugeBox.width - width - 14
+                                        y: (assessmentGaugeBox.height - height) / 2
+                                        text: "▾"
+                                        color: assessmentGaugeBox.enabled ? panel.charlotteGreen : panel.mutedInk
+                                        font.pixelSize: 16
+                                    }
                                     onActivated: panel.assessmentInputsRequested(
                                                      Number(diameterField.text),
                                                      Number(currentText),
@@ -1034,6 +1194,34 @@ Item {
                                     implicitHeight: 50
                                     model: panel.passMaterialNames
                                     currentIndex: Math.max(0, panel.passMaterialIds.indexOf(panel.assessmentMaterialId))
+                                    palette.text: panel.ink
+                                    palette.buttonText: panel.ink
+                                    palette.highlight: panel.charlotteGreen
+                                    palette.highlightedText: panel.quartzWhite
+                                    palette.base: panel.surface
+                                    palette.alternateBase: panel.canvas
+                                    contentItem: Text {
+                                        leftPadding: 14
+                                        rightPadding: 42
+                                        text: rasterMaterialBox.displayText
+                                        color: rasterMaterialBox.enabled ? panel.ink : panel.mutedInk
+                                        font.pixelSize: 14
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: rasterMaterialBox.enabled ? panel.surface : panel.disabledSurface
+                                        border.color: rasterMaterialBox.activeFocus ? panel.ninerGold : panel.divider
+                                        border.width: rasterMaterialBox.activeFocus ? 2 : 1
+                                    }
+                                    indicator: Text {
+                                        x: rasterMaterialBox.width - width - 14
+                                        y: (rasterMaterialBox.height - height) / 2
+                                        text: "▾"
+                                        color: rasterMaterialBox.enabled ? panel.charlotteGreen : panel.mutedInk
+                                        font.pixelSize: 16
+                                    }
                                     onActivated: panel.assessmentInputsRequested(
                                                      Number(diameterField.text),
                                                      panel.assessmentGauge,
@@ -1191,22 +1379,80 @@ Item {
                                 }
                                 Text { text: "Inlet layer"; color: panel.mutedInk; font.pixelSize: 12 }
                                 ComboBox {
+                                    id: setupLayerBox
                                     Layout.fillWidth: true
                                     implicitHeight: 50
                                     enabled: panel.hasProject && panel.layerNames.length > 0 && !panel.predictionBusy()
                                     model: panel.layerNames
                                     currentIndex: panel.layerIds.indexOf(panel.inletLayerId)
                                     displayText: currentIndex >= 0 ? currentText : "Choose a point layer"
+                                    palette.text: panel.ink
+                                    palette.buttonText: panel.ink
+                                    palette.highlight: panel.charlotteGreen
+                                    palette.highlightedText: panel.quartzWhite
+                                    palette.base: panel.surface
+                                    palette.alternateBase: panel.canvas
+                                    contentItem: Text {
+                                        leftPadding: 14
+                                        rightPadding: 42
+                                        text: setupLayerBox.displayText
+                                        color: setupLayerBox.enabled ? panel.ink : panel.mutedInk
+                                        font.pixelSize: 14
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: setupLayerBox.enabled ? panel.surface : panel.disabledSurface
+                                        border.color: setupLayerBox.activeFocus ? panel.ninerGold : panel.divider
+                                        border.width: setupLayerBox.activeFocus ? 2 : 1
+                                    }
+                                    indicator: Text {
+                                        x: setupLayerBox.width - width - 14
+                                        y: (setupLayerBox.height - height) / 2
+                                        text: "▾"
+                                        color: setupLayerBox.enabled ? panel.charlotteGreen : panel.mutedInk
+                                        font.pixelSize: 16
+                                    }
                                     onActivated: panel.inletLayerRequested(panel.layerIds[currentIndex])
                                 }
                                 Text { text: "Unique inlet ID field"; color: panel.mutedInk; font.pixelSize: 12 }
                                 ComboBox {
+                                    id: setupFieldBox
                                     Layout.fillWidth: true
                                     implicitHeight: 50
                                     enabled: panel.inletLayerId.length > 0 && panel.fieldNames.length > 0 && !panel.predictionBusy()
                                     model: panel.fieldNames
                                     currentIndex: panel.fieldNames.indexOf(panel.nodeIdField)
                                     displayText: currentIndex >= 0 ? currentText : "Choose an ID field"
+                                    palette.text: panel.ink
+                                    palette.buttonText: panel.ink
+                                    palette.highlight: panel.charlotteGreen
+                                    palette.highlightedText: panel.quartzWhite
+                                    palette.base: panel.surface
+                                    palette.alternateBase: panel.canvas
+                                    contentItem: Text {
+                                        leftPadding: 14
+                                        rightPadding: 42
+                                        text: setupFieldBox.displayText
+                                        color: setupFieldBox.enabled ? panel.ink : panel.mutedInk
+                                        font.pixelSize: 14
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: setupFieldBox.enabled ? panel.surface : panel.disabledSurface
+                                        border.color: setupFieldBox.activeFocus ? panel.ninerGold : panel.divider
+                                        border.width: setupFieldBox.activeFocus ? 2 : 1
+                                    }
+                                    indicator: Text {
+                                        x: setupFieldBox.width - width - 14
+                                        y: (setupFieldBox.height - height) / 2
+                                        text: "▾"
+                                        color: setupFieldBox.enabled ? panel.charlotteGreen : panel.mutedInk
+                                        font.pixelSize: 16
+                                    }
                                     onActivated: panel.nodeIdFieldRequested(currentText)
                                 }
                                 Text {
