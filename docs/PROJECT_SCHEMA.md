@@ -2,7 +2,7 @@
 
 ## Runtime mapping
 
-Version 0.5.13 can be used from any QField project containing a point layer and a stable unique ID field. The user chooses the layer and field in **Configuration**, confirms them once, and the plugin stores that mapping in device-local settings keyed by the exact project path and layer ID. **Pipeline Prediction** automatically uses that configured layer. A title key is used only for a genuinely pathless project; two same-title project files do not share configuration. The plugin does not modify or dirty the QGIS project.
+Version 0.5.14 can be used from any QField project containing a point layer and a stable unique ID field. The user chooses the layer and field in **Configuration**, confirms them once, and the plugin stores that mapping in device-local settings keyed by the exact project path and layer ID. **Pipeline Prediction** automatically uses that configured layer. A title key is used only for a genuinely pathless project; two same-title project files do not share configuration. The plugin saves one latest-result GeoJSON in the project home folder and restores its map layer automatically; it does not rewrite or dirty the `.qgs`/`.qgz` file.
 
 Prediction and PyPASS origins are built into the plugin. **Configuration** exposes a service-status card that checks both endpoints; users do not enter or persist API origins, and direct COG selection is not part of the mobile workflow. Prediction settings are stored locally per exact project alongside the mapping.
 

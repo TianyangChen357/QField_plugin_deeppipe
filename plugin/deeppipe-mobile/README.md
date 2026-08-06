@@ -1,15 +1,15 @@
-# DeepPipe Mobile QField plugin — API test 0.5.13
+# DeepPipe Mobile QField plugin — API test 0.5.14
 
 This app-wide QField plugin provides two touch-first field workflows:
 
 1. select inlet points directly from the active QField project and submit them to the DeepPipe Prediction API; and
 2. choose a map/GNSS location and exercise the pipe service-life Assessment interface.
 
-Version 0.5.13 connects **Pipeline Prediction** and **Service Life Assessment** to their live APIs, uses the layer saved in **Configuration** without a second chooser, supports Tap/Box/Visible inlet selection, renders threshold-qualified Predicted/Potential outcomes in green/yellow, provides a complete result attribute table and job-ZIP download, exports combined GeoJSON, and can add hosted PyPASS XYZ rasters.
+Version 0.5.14 connects **Pipeline Prediction** and **Service Life Assessment** to their live APIs, uses the layer saved in **Configuration** without a second chooser, supports Tap/Box/Visible inlet selection, persists one latest prediction layer per project, renders threshold-qualified Predicted/Potential outcomes in green/yellow with a working legend switch, provides a row-to-map result table and job-ZIP download, exports combined GeoJSON, and can add hosted PyPASS XYZ rasters.
 
 ## Install
 
-Install `deeppipe-mobile-v0.5.13.zip`. Its `main.qml` is at the ZIP root, as required for an app-wide QField plugin.
+Install `deeppipe-mobile-v0.5.14.zip`. Its `main.qml` is at the ZIP root, as required for an app-wide QField plugin.
 
 1. Host the ZIP at an HTTPS URL reachable by the phone.
 2. In QField, open **Settings → Plugins → Install plugin from URL**.
@@ -45,7 +45,7 @@ That mapping and the selected prediction settings are stored locally for the exa
 4. Review the prediction settings. Defaults are GNN, 500 ft, confidence 0.85, k=12, MST enabled, and 50% GNN probability / 50% length weighting. Elevation weighting is fixed at zero internally and is not shown as a user control.
 5. Tap **Predict pipes**.
 
-The plugin transforms selected points to EPSG:4326, sends a GeoJSON FeatureCollection to `POST /api/pred/pred_deep`, saves the returned task ID, polls status, downloads `Pipes.geojson`, and adds temporary WGS84 outcome layers. The backend first retains GNN-positive candidates at or above `classification_threshold`; the plugin then maps final `class=1` to Predicted and final `class=0` to Potential. Exact Charlotte Green/yellow map overlays sit above the attribute-bearing memory layers. The plugin can display every returned field, open `/api/jobs/jobs/{task_id}/download` for the server ZIP, and save a combined `DeepPipe_prediction_<job-id>.geojson` in the project or device Documents folder. A pending task resumes when the same project is reopened. Submission is never retried automatically after an ambiguous timeout, which avoids accidental duplicate jobs.
+The plugin transforms selected points to EPSG:4326, sends a GeoJSON FeatureCollection to `POST /api/pred/pred_deep`, saves the returned task ID, polls status, downloads `Pipes.geojson`, and replaces one persistent `DeepPipe Prediction Results` layer. The backend first retains GNN-positive candidates at or above `classification_threshold`; the plugin then maps final `class=1` to Predicted and final `class=0` to Potential. Exact Charlotte Green/yellow map overlays follow the single transparent OGR layer's legend visibility. The latest result GeoJSON is saved automatically in the project folder and restored on reopen. The plugin can display every returned field, zoom and highlight a pipe selected in the table, open `/api/jobs/jobs/{task_id}/download` for the server ZIP, and save another combined GeoJSON copy. A pending task resumes when the same project is reopened. Submission is never retried automatically after an ambiguous timeout, which avoids accidental duplicate jobs.
 
 Use **Configuration → Check API status** before the first submission. The status card checks both Prediction and PyPASS; their origins are built into the plugin. A local preview fallback remains available for offline UI testing when the project is configured with `api_mode=mock`.
 

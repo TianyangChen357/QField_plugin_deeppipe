@@ -12,16 +12,17 @@ Item {
     id: plugin
     objectName: "deepPipeMobilePlugin"
 
-    readonly property string pluginVersion: "0.5.13"
+    readonly property string pluginVersion: "0.5.14"
     readonly property string defaultApiBaseUrl: "https://lab.yyworkshop.com/predapi"
     readonly property string defaultPassApiBaseUrl: "https://lab.yyworkshop.com"
 
     property var mainWindow: iface.mainWindow()
     property var mapCanvas: iface.mapCanvas()
     property var positionSource: iface.positioning()
-    // Resolve the QField handler eagerly, as in the v0.3 implementation. Some
-    // QField builds expose it before the plugin's first project callback.
-    property var pointHandler: iface.findItemByObjectName("pointHandler")
+    // Register QField's point handler only while a DeepPipe map interaction is
+    // active. Keeping it registered while idle can capture the first touch
+    // after a fresh plugin install and force users to pan with two fingers.
+    property var pointHandler: null
     property bool pointHandlerRegistered: false
 
     property bool hasProject: false
@@ -54,13 +55,17 @@ Item {
     property string predictionMessage: ""
     property var predictionSummary: null
     property var predictionResultLayer: null
-    property var predictionResultLayers: []
     property string predictionExportGeoJson: ""
     property var predictionExportCrs: null
     property var predictionAttributeTable: ({ columns: [], rows: [] })
     property string predictionResultLayerName: ""
+    property string predictionResultPath: ""
     property string lastPredictionExportPath: ""
     property string lastCompletedJobId: ""
+    property bool hasPredictedResultGeometry: false
+    property bool hasPotentialResultGeometry: false
+    property bool focusedResultVisible: false
+    property int mapLayerVisibilityRevision: 0
     property string activeMockJobId: ""
     property int mockPredictionStage: 0
 
@@ -97,11 +102,24 @@ Item {
     property string rasterMessage: "No PyPASS raster has been added by the plugin."
 
     property bool selectionMutationInProgress: false
+    property var geometryHighlighter: iface.findItemByObjectName("geometryHighlighter")
+    readonly property bool predictionLayerLegendVisible: {
+        var revision = mapLayerVisibilityRevision;
+        var layer = predictionResultLayer;
+        var layers = mapCanvas && mapCanvas.mapSettings
+                ? (mapCanvas.mapSettings.layers || []) : [];
+        if (!layer) return false;
+        for (var index = 0; index < layers.length; index += 1) {
+            if (layers[index] === layer ||
+                    (layers[index] && String(layers[index].id) === String(layer.id))) return true;
+        }
+        return false;
+    }
 
-    // QField 4.2 does not expose vector-renderer mutation to app-wide QML
-    // plugins. These two non-interactive map overlays provide the exact result
-    // colors while the underlying memory layers retain all attributes and
-    // remain available to QField's identify workflow.
+    // QField's app-wide QML API does not expose categorized renderer mutation.
+    // A single transparent, persistent vector layer owns legend visibility,
+    // selection, and attributes. These overlays supply the exact class colors
+    // and follow that layer's legend state.
     QFieldItems.GeometryRenderer {
         id: predictedResultOverlay
         parent: mapCanvas ? mapCanvas : plugin
@@ -109,7 +127,7 @@ Item {
         mapSettings: mapCanvas ? mapCanvas.mapSettings : null
         color: "#005035"
         lineWidth: 5.5
-        visible: plugin.predictionResultLayers.length > 0
+        visible: plugin.predictionLayerLegendVisible && plugin.hasPredictedResultGeometry
         z: 9000
     }
 
@@ -120,8 +138,19 @@ Item {
         mapSettings: mapCanvas ? mapCanvas.mapSettings : null
         color: "#F4C430"
         lineWidth: 5.5
-        visible: plugin.predictionResultLayers.length > 0
+        visible: plugin.predictionLayerLegendVisible && plugin.hasPotentialResultGeometry
         z: 9001
+    }
+
+    QFieldItems.GeometryRenderer {
+        id: focusedResultOverlay
+        parent: mapCanvas ? mapCanvas : plugin
+        anchors.fill: parent
+        mapSettings: mapCanvas ? mapCanvas.mapSettings : null
+        color: "#00A6D6"
+        lineWidth: 10
+        visible: plugin.focusedResultVisible
+        z: 9002
     }
 
     Settings {
@@ -132,6 +161,7 @@ Item {
         property string lastProjectName: ""
         property string projectMappingsJson: "{}"
         property string projectServiceSettingsJson: "{}"
+        property string projectPredictionResultsJson: "{}"
         property string pendingJobsJson: "[]"
     }
 
@@ -178,6 +208,14 @@ Item {
         pointHandler = handler;
         pointHandlerRegistered = true;
         return true;
+    }
+
+    function releasePointHandler() {
+        if (pointHandlerRegistered && pointHandler &&
+                typeof pointHandler.deregisterHandler === "function") {
+            pointHandler.deregisterHandler("deeppipe_mobile_interactions");
+        }
+        pointHandlerRegistered = false;
     }
 
     function toast(message) {
@@ -270,6 +308,39 @@ Item {
                     {
                         prediction_config: predictionConfig
                     });
+    }
+
+    function savedPredictionResultState() {
+        if (!hasProject || !currentProjectKey) return null;
+        return DeepPipe.predictionResultState(
+                    appSettings.projectPredictionResultsJson,
+                    projectPath,
+                    projectName);
+    }
+
+    function savePredictionResultState(path, jobId, threshold, selectedCount) {
+        if (!hasProject || !currentProjectKey || !path) return;
+        appSettings.projectPredictionResultsJson = DeepPipe.updatePredictionResultState(
+                    appSettings.projectPredictionResultsJson,
+                    projectPath,
+                    projectName,
+                    {
+                        path: path,
+                        layer_name: "DeepPipe Prediction Results",
+                        job_id: jobId,
+                        threshold: threshold,
+                        selected_count: selectedCount,
+                        saved_at: new Date().toISOString()
+                    });
+    }
+
+    function clearPredictionResultState() {
+        if (!hasProject || !currentProjectKey) return;
+        appSettings.projectPredictionResultsJson = DeepPipe.updatePredictionResultState(
+                    appSettings.projectPredictionResultsJson,
+                    projectPath,
+                    projectName,
+                    null);
     }
 
     function testApiConnections() {
@@ -545,9 +616,11 @@ Item {
                 previousProjectKey !== currentProjectKey ||
                 previousLayerId !== inletLayerId;
         if (shouldReset) {
+            releasePointHandler();
             selectedFids = [];
             selectedPoints = [];
-            removePredictionLayer();
+            detachPredictionLayer();
+            lastCompletedJobId = "";
             removeManagedRasterLayers();
             assessmentLatitude = NaN;
             assessmentLongitude = NaN;
@@ -556,6 +629,7 @@ Item {
             assessmentResult = null;
             assessmentStatus = "idle";
             assessmentMessage = "Choose a map or GNSS location.";
+            restorePersistedPredictionResult();
             restorePendingJob();
         }
     }
@@ -719,11 +793,13 @@ Item {
 
     function finishMapInteraction() {
         interactionMode = "idle";
+        releasePointHandler();
         panelDrawer.open();
     }
 
     function cancelMapInteraction() {
         interactionMode = "idle";
+        releasePointHandler();
         panelDrawer.open();
     }
 
@@ -888,6 +964,7 @@ Item {
         var wgs84 = GeometryUtils.reprojectPointToWgs84(projectPoint, mapCanvas.mapSettings.destinationCrs);
         setAssessmentLocation(Number(wgs84.y), Number(wgs84.x), "Map point");
         interactionMode = "idle";
+        releasePointHandler();
         panelDrawer.open();
         return true;
     }
@@ -1097,41 +1174,199 @@ Item {
         rasterMessage = "No PyPASS raster has been added by the plugin.";
     }
 
-    function removePredictionLayer(preserveCompletedJob) {
+    function isManagedPredictionLayer(layer) {
+        if (!layer) return false;
+        var marked = false;
+        if (typeof layer.customProperty === "function") {
+            marked = Boolean(layer.customProperty("deeppipe/managed_prediction_result", false));
+        }
+        var name = String(layer.name || "");
+        return marked || name === "DeepPipe Prediction Results" ||
+                name.indexOf("DeepPipe Pipes ") === 0 ||
+                name.indexOf("DeepPipe Mock ") === 0;
+    }
+
+    function detachPredictionLayer() {
         if (qgisProject) {
-            var layers = Array.isArray(predictionResultLayers) ? predictionResultLayers : [];
-            layers.forEach(function (layer) {
-                if (layer) ProjectUtils.removeMapLayer(qgisProject, layer);
+            var projectLayers = ProjectUtils.mapLayers(qgisProject);
+            Object.keys(projectLayers || {}).forEach(function (layerId) {
+                var layer = projectLayers[layerId];
+                if (layer === predictionResultLayer || isManagedPredictionLayer(layer)) {
+                    ProjectUtils.removeMapLayer(qgisProject, layer);
+                }
             });
-            if (layers.length === 0 && predictionResultLayer) {
-                ProjectUtils.removeMapLayer(qgisProject, predictionResultLayer);
-            }
         }
         predictionResultLayer = null;
-        predictionResultLayers = [];
         predictionExportGeoJson = "";
         predictionExportCrs = null;
         predictionAttributeTable = ({ columns: [], rows: [] });
         predictionResultLayerName = "";
+        predictionResultPath = "";
         lastPredictionExportPath = "";
-        if (!preserveCompletedJob) lastCompletedJobId = "";
+        hasPredictedResultGeometry = false;
+        hasPotentialResultGeometry = false;
+        focusedResultVisible = false;
+        focusResultTimer.stop();
         predictedResultOverlay.geometryWrapper.clear();
         potentialResultOverlay.geometryWrapper.clear();
+        focusedResultOverlay.geometryWrapper.clear();
+        mapLayerVisibilityRevision += 1;
     }
 
-    function setPredictionOverlayGeometry(renderer, featureCollection, crs) {
+    function removePredictionLayer(preserveCompletedJob, preserveStoredResult) {
+        detachPredictionLayer();
+        predictionSummary = null;
+        if (!preserveCompletedJob) lastCompletedJobId = "";
+        if (!preserveStoredResult) clearPredictionResultState();
+    }
+
+    function predictionResultFilePath() {
+        if (!qgisProject || !hasProject) return "";
+        var baseFolder = String(qgisProject.homePath || "");
+        if (!baseFolder && projectPath) {
+            var normalizedPath = String(projectPath).replace(/\\/g, "/");
+            var separator = normalizedPath.lastIndexOf("/");
+            if (separator > 0) baseFolder = normalizedPath.slice(0, separator);
+        }
+        if (!baseFolder) {
+            baseFolder = String(StandardPaths.writableLocation(StandardPaths.DocumentsLocation) || "");
+        }
+        if (!baseFolder) return "";
+        var projectHash = DeepPipe.stableHash(currentProjectKey).toString(36);
+        return baseFolder + "/DeepPipe_prediction_latest_" + projectHash + ".geojson";
+    }
+
+    function setPredictionOverlayWkts(renderer, wkts, crs) {
         renderer.geometryWrapper.clear();
-        var wkt = DeepPipe.featureCollectionMultiLineWkt(featureCollection);
-        if (!wkt) return;
+        if (!Array.isArray(wkts) || wkts.length === 0) return false;
+        var wkt = wkts.length === 1
+                ? String(wkts[0])
+                : "GEOMETRYCOLLECTION (" + wkts.join(", ") + ")";
         var geometry = GeometryUtils.createGeometryFromWkt(wkt);
-        if (!geometry) return;
+        if (!geometry) return false;
         renderer.geometryWrapper.crs = crs;
         renderer.geometryWrapper.qgsGeometry = geometry;
+        return true;
     }
 
-    function createPredictionResultLayers(featureCollection, crs, baseName, threshold) {
-        removePredictionLayer();
-        if (!featureCollection || !Array.isArray(featureCollection.features) || featureCollection.features.length === 0) {
+    function rebuildPredictionStateFromLayer(layer, selectedCount, threshold) {
+        if (!layer || !layer.isValid) return false;
+        var rawNames = layer.fields ? layer.fields.names : [];
+        if (typeof rawNames === "function") rawNames = rawNames();
+        var names = DeepPipe.stringList(rawNames);
+        var preferred = [
+            "deeppipe_outcome", "node_u", "node_v", "prob", "length",
+            "class", "model_class", "sample_id", "link_id", "job_id"
+        ];
+        var orderedNames = [];
+        preferred.forEach(function (name) {
+            if (names.indexOf(name) >= 0 && orderedNames.indexOf(name) < 0) orderedNames.push(name);
+        });
+        names.forEach(function (name) {
+            if (orderedNames.indexOf(name) < 0) orderedNames.push(name);
+        });
+
+        var rows = [];
+        var predictedWkts = [];
+        var potentialWkts = [];
+        var iterator = LayerUtils.createFeatureIterator(layer);
+        while (iterator && iterator.hasNext()) {
+            var feature = iterator.next();
+            if (!feature) continue;
+            var row = { __row: rows.length + 1, __fid: Number(feature.id) };
+            orderedNames.forEach(function (fieldName) {
+                row[fieldName] = feature.attribute(fieldName);
+            });
+            rows.push(row);
+            var outcome = String(row.deeppipe_outcome || "").toLowerCase();
+            if (feature.geometry && typeof feature.geometry.asWkt === "function") {
+                var featureWkt = String(feature.geometry.asWkt());
+                if (outcome === "predicted") predictedWkts.push(featureWkt);
+                if (outcome === "potential") potentialWkts.push(featureWkt);
+            }
+        }
+        if (iterator && typeof iterator.close === "function") iterator.close();
+        if (rows.length === 0) return false;
+
+        predictionAttributeTable = {
+            columns: [{ key: "__row", label: "Row" }].concat(
+                         orderedNames.map(function (name) {
+                             return { key: name, label: DeepPipe.predictionAttributeLabel(name) };
+                         })),
+            rows: rows
+        };
+        hasPredictedResultGeometry = setPredictionOverlayWkts(
+                    predictedResultOverlay, predictedWkts, layer.crs);
+        hasPotentialResultGeometry = setPredictionOverlayWkts(
+                    potentialResultOverlay, potentialWkts, layer.crs);
+        predictionSummary = {
+            total: predictedWkts.length + potentialWkts.length,
+            predicted: predictedWkts.length,
+            potential: potentialWkts.length,
+            unknown: 0,
+            excluded: 0,
+            selectedInlets: Math.max(0, Number(selectedCount || 0)),
+            threshold: Number(threshold || predictionConfig.classification_threshold)
+        };
+        return true;
+    }
+
+    function rectangleNumber(rectangle, memberName) {
+        if (!rectangle) return NaN;
+        var value = rectangle[memberName];
+        if (typeof value === "function") value = value.call(rectangle);
+        return Number(value);
+    }
+
+    function attachPersistentPredictionLayer(path, state) {
+        var layer = LayerUtils.loadVectorLayer(
+                    String(path || ""),
+                    "DeepPipe Prediction Results",
+                    "ogr");
+        if (!layer || !layer.isValid) return false;
+        layer.opacity = 0;
+        if (typeof layer.setCustomProperty === "function") {
+            layer.setCustomProperty("deeppipe/managed_prediction_result", true);
+            layer.setCustomProperty("deeppipe/result_path", String(path || ""));
+        }
+        if (!ProjectUtils.addMapLayer(qgisProject, layer)) return false;
+
+        predictionResultLayer = layer;
+        predictionResultLayerName = "DeepPipe Prediction Results";
+        predictionResultPath = String(path || "");
+        predictionExportCrs = layer.crs;
+        lastPredictionExportPath = predictionResultPath;
+        lastCompletedJobId = String(state && state.job_id || "");
+        if (!rebuildPredictionStateFromLayer(
+                    layer,
+                    Number(state && state.selected_count || 0),
+                    Number(state && state.threshold || predictionConfig.classification_threshold))) {
+            ProjectUtils.removeMapLayer(qgisProject, layer);
+            detachPredictionLayer();
+            return false;
+        }
+        mapLayerVisibilityRevision += 1;
+        return true;
+    }
+
+    function restorePersistedPredictionResult() {
+        var state = savedPredictionResultState();
+        if (!state || !state.path || !qgisProject) return false;
+        detachPredictionLayer();
+        if (!attachPersistentPredictionLayer(state.path, state)) {
+            clearPredictionResultState();
+            iface.logMessage("DeepPipe Mobile could not restore the saved prediction result at " + state.path);
+            return false;
+        }
+        predictionExportGeoJson = "";
+        predictionStatus = "succeeded";
+        predictionMessage = "Restored the latest saved prediction result for this project.";
+        return true;
+    }
+
+    function createPredictionResultLayer(featureCollection, crs, jobId, threshold, selectedCount) {
+        if (!featureCollection || !Array.isArray(featureCollection.features) ||
+                featureCollection.features.length === 0 || !qgisProject) {
             return false;
         }
 
@@ -1142,45 +1377,57 @@ Item {
             features: partitions.predicted.features
                       .concat(partitions.potential.features)
         };
+        decoratedCollection.features.forEach(function (feature, index) {
+            if (!feature.properties) feature.properties = {};
+            feature.properties.deeppipe_result_id = index + 1;
+        });
+        if (decoratedCollection.features.length === 0) return false;
 
-        var specifications = [
-            { suffix: "Predicted", collection: partitions.predicted, opacity: 1.0 },
-            { suffix: "Potential", collection: partitions.potential, opacity: 1.0 }
-        ];
-        var addedLayers = [];
-        var addedNames = [];
-        for (var index = 0; index < specifications.length; index += 1) {
-            var specification = specifications[index];
-            if (!specification.collection || specification.collection.features.length === 0) continue;
-            var layerName = String(baseName) + " · " + specification.suffix;
-            var layer = LayerUtils.memoryLayerFromJsonString(
-                        layerName,
-                        JSON.stringify(specification.collection),
-                        crs);
-            if (!layer || !layer.isValid || !ProjectUtils.addMapLayer(qgisProject, layer)) {
-                addedLayers.forEach(function (addedLayer) {
-                    ProjectUtils.removeMapLayer(qgisProject, addedLayer);
-                });
-                return false;
+        var requestedPath = predictionResultFilePath();
+        if (!requestedPath) return false;
+        var previousState = savedPredictionResultState();
+        var stagingLayer = LayerUtils.memoryLayerFromJsonString(
+                    "DeepPipe result staging",
+                    JSON.stringify(decoratedCollection),
+                    crs);
+        if (!stagingLayer || !stagingLayer.isValid) return false;
+
+        detachPredictionLayer();
+        stagingLayer.opacity = 0;
+        if (!ProjectUtils.addMapLayer(qgisProject, stagingLayer)) {
+            if (previousState && previousState.path) {
+                attachPersistentPredictionLayer(previousState.path, previousState);
             }
-            layer.opacity = specification.opacity;
-            addedLayers.push(layer);
-            addedNames.push(layerName);
+            return false;
         }
-        if (addedLayers.length === 0) return false;
+        var savedPath = LayerUtils.saveVectorLayerAs(stagingLayer, requestedPath, "GeoJSON", "");
+        ProjectUtils.removeMapLayer(qgisProject, stagingLayer);
+        if (!savedPath) {
+            if (previousState && previousState.path) attachPersistentPredictionLayer(previousState.path, previousState);
+            return false;
+        }
 
+        var nextState = {
+            path: String(savedPath),
+            layer_name: "DeepPipe Prediction Results",
+            job_id: String(jobId || ""),
+            threshold: Number(threshold || predictionConfig.classification_threshold),
+            selected_count: Math.max(0, Number(selectedCount || 0))
+        };
+        if (!attachPersistentPredictionLayer(savedPath, nextState)) return false;
         predictionExportGeoJson = JSON.stringify(decoratedCollection);
         predictionExportCrs = crs;
-        predictionAttributeTable = DeepPipe.predictionAttributeTable(decoratedCollection);
-        predictionResultLayers = addedLayers;
-        predictionResultLayer = addedLayers[0];
-        predictionResultLayerName = addedNames.join(" + ");
-        setPredictionOverlayGeometry(predictedResultOverlay, partitions.predicted, crs);
-        setPredictionOverlayGeometry(potentialResultOverlay, partitions.potential, crs);
+        lastCompletedJobId = String(jobId || "");
+        savePredictionResultState(savedPath, jobId, threshold, selectedCount);
         return true;
     }
 
     function exportPredictionResult() {
+        if ((!predictionExportGeoJson || !predictionExportCrs) && predictionResultPath) {
+            lastPredictionExportPath = predictionResultPath;
+            toast("The latest result is already saved in this project's folder.");
+            return;
+        }
         if (!predictionExportGeoJson || !predictionExportCrs || !qgisProject) {
             toast("There is no prediction result to export.");
             return;
@@ -1220,6 +1467,73 @@ Item {
             return;
         }
         toast("The GeoJSON is saved at " + lastPredictionExportPath);
+    }
+
+    function focusPredictionResult(rowIndex) {
+        var rows = predictionAttributeTable && Array.isArray(predictionAttributeTable.rows)
+                ? predictionAttributeTable.rows : [];
+        var index = Number(rowIndex);
+        if (!predictionResultLayer || !mapCanvas || !Number.isInteger(index) ||
+                index < 0 || index >= rows.length) {
+            toast("That prediction result is no longer available.");
+            return;
+        }
+        var fid = Number(rows[index].__fid);
+        if (!Number.isFinite(fid)) {
+            toast("That prediction result does not have a usable feature ID.");
+            return;
+        }
+        LayerUtils.selectFeaturesInLayer(predictionResultLayer, [fid]);
+        var selected = typeof predictionResultLayer.selectedFeatures === "function"
+                ? predictionResultLayer.selectedFeatures() : [];
+        var feature = null;
+        for (var selectedIndex = 0; selectedIndex < selected.length; selectedIndex += 1) {
+            if (Number(selected[selectedIndex].id) === fid) {
+                feature = selected[selectedIndex];
+                break;
+            }
+        }
+        if (!feature || !feature.geometry) {
+            toast("QField could not locate that pipe geometry.");
+            return;
+        }
+
+        focusedResultOverlay.geometryWrapper.crs = predictionResultLayer.crs;
+        focusedResultOverlay.geometryWrapper.qgsGeometry = feature.geometry;
+        focusedResultVisible = true;
+        focusResultTimer.restart();
+        if (geometryHighlighter && geometryHighlighter.geometryWrapper) {
+            geometryHighlighter.geometryWrapper.crs = predictionResultLayer.crs;
+            geometryHighlighter.geometryWrapper.qgsGeometry = feature.geometry;
+        }
+
+        var mapGeometry = GeometryUtils.reprojectGeometry(
+                    feature.geometry,
+                    predictionResultLayer.crs,
+                    mapCanvas.mapSettings.destinationCrs);
+        var extent = GeometryUtils.boundingBox(mapGeometry);
+        var currentExtent = mapCanvas.mapSettings.extent;
+        var featureSpan = Math.max(
+                    rectangleNumber(extent, "width"),
+                    rectangleNumber(extent, "height"));
+        var viewSpan = currentExtent
+                ? Math.max(
+                      rectangleNumber(currentExtent, "width"),
+                      rectangleNumber(currentExtent, "height")) : 0;
+        var padding = Math.max(featureSpan * 0.25, viewSpan * 0.015);
+        if (!Number.isFinite(padding) || padding <= 0) padding = 0.0005;
+        var minimumX = rectangleNumber(extent, "xMinimum");
+        var minimumY = rectangleNumber(extent, "yMinimum");
+        var maximumX = rectangleNumber(extent, "xMaximum");
+        var maximumY = rectangleNumber(extent, "yMaximum");
+        if (![minimumX, minimumY, maximumX, maximumY].every(Number.isFinite)) {
+            toast("The pipe was highlighted, but QField could not calculate its map extent.");
+            return;
+        }
+        mapCanvas.mapSettings.extent = GeometryUtils.createRectangleFromPoints(
+                    GeometryUtils.point(minimumX - padding, minimumY - padding),
+                    GeometryUtils.point(maximumX + padding, maximumY + padding));
+        toast("Focused pipe " + (index + 1) + " of " + rows.length + ".");
     }
 
     function downloadCompletedJobZip() {
@@ -1273,8 +1587,6 @@ Item {
                     predictionConfig,
                     {});
 
-        removePredictionLayer();
-        predictionSummary = null;
         predictionStatus = "submitting";
         predictionMessage = "Submitting " + selectedCount + " selected inlets to the DeepPipe API…";
 
@@ -1396,8 +1708,8 @@ Item {
 
             var result = DeepPipe.decorateLiveResult(payload, jobId, activeJobThreshold);
             var summary = DeepPipe.summarizeLiveResult(result, activeJobSelectedCount, activeJobThreshold);
-            removePredictionLayer();
             if (summary.total === 0) {
+                removePredictionLayer(false, false);
                 lastCompletedJobId = jobId;
                 predictionSummary = summary;
                 predictionStatus = "succeeded";
@@ -1407,12 +1719,12 @@ Item {
                 return;
             }
 
-            var layerName = "DeepPipe Pipes " + jobId;
-            if (!createPredictionResultLayers(
+            if (!createPredictionResultLayer(
                         result,
                         CoordinateReferenceSystemUtils.wgs84Crs(),
-                        layerName,
-                        activeJobThreshold)) {
+                        jobId,
+                        activeJobThreshold,
+                        activeJobSelectedCount)) {
                 predictionStatus = "fetching";
                 predictionMessage = "The live result was downloaded but could not be added to the map. The job ID remains saved for retry.";
                 scheduleJobPoll(20000);
@@ -1470,7 +1782,6 @@ Item {
             return;
         }
 
-        removePredictionLayer();
         activeMockJobId = DeepPipe.createMockJobId(selectedPoints, Date.now());
         predictionStatus = "queued";
         predictionMessage = "Preparing " + selectedPoints.length + " locally selected inlets…";
@@ -1487,12 +1798,12 @@ Item {
             return;
         }
 
-        var layerName = "DeepPipe Mock " + activeMockJobId;
-        if (!createPredictionResultLayers(
+        if (!createPredictionResultLayer(
                     result.featureCollection,
                     inletLayer.crs,
-                    layerName,
-                    predictionConfig.classification_threshold)) {
+                    activeMockJobId,
+                    predictionConfig.classification_threshold,
+                    selectedPoints.length)) {
             predictionStatus = "failed";
             predictionMessage = "The preview was generated but could not be added to the map.";
             return;
@@ -1509,7 +1820,6 @@ Item {
         target: iface
 
         function onLoadProjectEnded(path, name) {
-            ensurePointHandlerRegistered(false);
             loadProjectConfiguration(true);
         }
 
@@ -1519,7 +1829,8 @@ Item {
             mockPredictionTimer.stop();
             jobPollTimer.stop();
             abandonActiveRequest();
-            removePredictionLayer();
+            releasePointHandler();
+            detachPredictionLayer();
             removeManagedRasterLayers();
             selectedFids = [];
             selectedPoints = [];
@@ -1552,6 +1863,15 @@ Item {
         }
     }
 
+    Connections {
+        target: mapCanvas && mapCanvas.mapSettings ? mapCanvas.mapSettings : null
+        ignoreUnknownSignals: true
+
+        function onLayersChanged() {
+            mapLayerVisibilityRevision += 1;
+        }
+    }
+
     Timer {
         id: mockPredictionTimer
         interval: 650
@@ -1576,6 +1896,16 @@ Item {
         onTriggered: pollActiveJob()
     }
 
+    Timer {
+        id: focusResultTimer
+        interval: 4500
+        repeat: false
+        onTriggered: {
+            focusedResultVisible = false;
+            focusedResultOverlay.geometryWrapper.clear();
+        }
+    }
+
     QfToolButton {
         id: pluginButton
         objectName: "deepPipeMobileButton"
@@ -1591,6 +1921,21 @@ Item {
         }
     }
 
+    QfToolButton {
+        id: resultTableButton
+        objectName: "deepPipePredictionResultsButton"
+        iconSource: "results-table.svg"
+        iconColor: "#FFFFFF"
+        bgcolor: "#005035"
+        round: true
+        visible: predictionResultLayer !== null && predictionAttributeTable &&
+                 Array.isArray(predictionAttributeTable.rows) &&
+                 predictionAttributeTable.rows.length > 0
+        Accessible.name: "Open DeepPipe prediction results table"
+
+        onClicked: deepPipePanel.openResultAttributeTable()
+    }
+
     Drawer {
         id: panelDrawer
         parent: mainWindow ? mainWindow.contentItem : plugin
@@ -1601,7 +1946,9 @@ Item {
         height: parent ? parent.height : 720
 
         DeepPipePanel {
+            id: deepPipePanel
             anchors.fill: parent
+            mainWindow: plugin.mainWindow
             hasProject: plugin.hasProject
             projectReady: plugin.projectReady
             assessmentReady: plugin.assessmentReady
@@ -1669,6 +2016,10 @@ Item {
             onExportPredictionRequested: plugin.exportPredictionResult()
             onSharePredictionExportRequested: plugin.sharePredictionExport()
             onDownloadPredictionZipRequested: plugin.downloadCompletedJobZip()
+            onPredictionRowRequested: function (rowIndex) {
+                panelDrawer.close();
+                plugin.focusPredictionResult(rowIndex);
+            }
             onPickAssessmentLocationRequested: plugin.startAssessmentLocationSelection()
             onUseGnssRequested: plugin.useCurrentGnssLocation()
             onAssessmentInputsRequested: function (diameter, gauge, materialId, minimumYears) {
@@ -1863,7 +2214,7 @@ Item {
 
     Component.onCompleted: {
         iface.addItemToPluginsToolbar(pluginButton);
-        ensurePointHandlerRegistered(false);
+        iface.addItemToCanvasActionsToolbar(resultTableButton);
         loadProjectConfiguration(true);
     }
 
@@ -1871,9 +2222,8 @@ Item {
         mockPredictionTimer.stop();
         jobPollTimer.stop();
         abandonActiveRequest();
-        if (pointHandlerRegistered && pointHandler) pointHandler.deregisterHandler("deeppipe_mobile_interactions");
-        pointHandlerRegistered = false;
-        removePredictionLayer();
+        releasePointHandler();
+        detachPredictionLayer();
         removeManagedRasterLayers();
     }
 }

@@ -140,6 +140,30 @@ function updateProjectServiceSettings(text, projectPath, projectName, settings) 
     return JSON.stringify(settingsByProject);
 }
 
+function predictionResultState(text, projectPath, projectName) {
+    var resultsByProject = parseProjectMappings(text);
+    var state = resultsByProject[projectKey(projectPath, projectName)];
+    return state && typeof state === "object" && !Array.isArray(state) ? state : null;
+}
+
+function updatePredictionResultState(text, projectPath, projectName, state) {
+    var resultsByProject = parseProjectMappings(text);
+    var key = projectKey(projectPath, projectName);
+    if (!state || !String(state.path || "").trim()) {
+        delete resultsByProject[key];
+        return JSON.stringify(resultsByProject);
+    }
+    resultsByProject[key] = {
+        path: String(state.path),
+        layer_name: String(state.layer_name || "DeepPipe Prediction Results"),
+        job_id: String(state.job_id || ""),
+        threshold: asFiniteNumber(state.threshold, predictionDefaults().classification_threshold),
+        selected_count: Math.max(0, Math.round(asFiniteNumber(state.selected_count, 0))),
+        saved_at: String(state.saved_at || new Date().toISOString())
+    };
+    return JSON.stringify(resultsByProject);
+}
+
 function mergePointRecords(currentRecords, incomingRecords) {
     var current = Array.isArray(currentRecords) ? currentRecords : [];
     var incoming = Array.isArray(incomingRecords) ? incomingRecords : [];

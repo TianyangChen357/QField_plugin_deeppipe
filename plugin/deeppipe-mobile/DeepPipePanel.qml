@@ -5,6 +5,7 @@ import QtQuick.Layouts
 Item {
     id: panel
 
+    property var mainWindow: null
     property bool hasProject: false
     property bool projectReady: false
     property bool assessmentReady: false
@@ -47,7 +48,7 @@ Item {
     property string rasterMessage: "No PyPASS raster has been added by the plugin."
     property var rasterLayerNames: []
     property string activeJobId: ""
-    property string pluginVersion: "0.5.13"
+    property string pluginVersion: "0.5.14"
 
     signal closeRequested()
     signal refreshProjectRequested()
@@ -64,6 +65,7 @@ Item {
     signal exportPredictionRequested()
     signal sharePredictionExportRequested()
     signal downloadPredictionZipRequested()
+    signal predictionRowRequested(int rowIndex)
     signal pickAssessmentLocationRequested()
     signal useGnssRequested()
     signal assessmentInputsRequested(real nominalDiameter, int gauge, string materialId, int minimumYears)
@@ -131,6 +133,13 @@ Item {
             width += attributeColumnWidth(columns[index].key);
         }
         return Math.max(width, 320);
+    }
+
+    function openResultAttributeTable() {
+        if (predictionAttributeTable && Array.isArray(predictionAttributeTable.rows) &&
+                predictionAttributeTable.rows.length > 0) {
+            resultTablePopup.open();
+        }
     }
 
     function predictionStatusColor() {
@@ -887,7 +896,7 @@ Item {
                                     visible: text.length > 0
                                     color: panel.mutedInk
                                     font.pixelSize: 12
-                                    elide: Text.ElideMiddle
+                                    wrapMode: Text.WordWrap
                                 }
                                 GridLayout {
                                     Layout.fillWidth: true
@@ -930,7 +939,8 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     text: panel.predictionResultLayer.length > 0
-                                          ? "Map layer: " + panel.predictionResultLayer
+                                          ? "Map layer: " + panel.predictionResultLayer +
+                                            ". Its legend switch controls both colors; a new run replaces this layer."
                                           : ""
                                     visible: text.length > 0
                                     color: panel.mutedInk
@@ -947,7 +957,7 @@ Item {
                                     font.bold: true
                                     palette.button: panel.primary
                                     palette.buttonText: "white"
-                                    onClicked: resultTablePopup.open()
+                                    onClicked: panel.openResultAttributeTable()
                                 }
                                 Button {
                                     Layout.fillWidth: true
@@ -970,7 +980,7 @@ Item {
                                 Button {
                                     Layout.fillWidth: true
                                     implicitHeight: 50
-                                    text: "Save combined result as GeoJSON"
+                                    text: "Save another GeoJSON copy"
                                     visible: panel.predictionResultLayer.length > 0
                                     font.bold: true
                                     palette.button: panel.primary
@@ -979,7 +989,7 @@ Item {
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: panel.predictionExportPath.length > 0 ? "Saved: " + panel.predictionExportPath : ""
+                                    text: panel.predictionExportPath.length > 0 ? "Latest result saved: " + panel.predictionExportPath : ""
                                     visible: text.length > 0
                                     color: panel.success
                                     font.pixelSize: 11
@@ -1822,14 +1832,15 @@ Item {
 
     Popup {
         id: resultTablePopup
-        parent: panel
+        parent: panel.mainWindow && panel.mainWindow.contentItem
+                ? panel.mainWindow.contentItem : panel
         modal: true
         focus: true
         closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        width: Math.min(panel.width - 16, 720)
-        height: Math.min(panel.height - 40, 680)
-        x: (panel.width - width) / 2
-        y: Math.max(8, (panel.height - height) / 2)
+        width: Math.min((parent ? parent.width : panel.width) - 16, 720)
+        height: Math.min((parent ? parent.height : panel.height) - 40, 680)
+        x: parent ? (parent.width - width) / 2 : 8
+        y: parent ? Math.max(8, (parent.height - height) / 2) : 8
 
         background: Rectangle {
             radius: 16
@@ -1867,7 +1878,8 @@ Item {
                             ? panel.predictionAttributeTable.rows.length : 0;
                     var columns = panel.predictionAttributeTable && Array.isArray(panel.predictionAttributeTable.columns)
                             ? panel.predictionAttributeTable.columns.length : 0;
-                    return rows + " pipe" + (rows === 1 ? "" : "s") + " · " + columns + " fields · swipe horizontally and vertically";
+                    return rows + " pipe" + (rows === 1 ? "" : "s") + " · " + columns +
+                            " fields · tap a row to zoom and highlight · swipe horizontally and vertically";
                 }
                 color: panel.mutedInk
                 font.pixelSize: 12
@@ -1987,6 +1999,16 @@ Item {
                                                 elide: Text.ElideRight
                                             }
                                         }
+                                    }
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    z: 2
+                                    Accessible.name: "Focus prediction result row " + (index + 1)
+                                    onClicked: {
+                                        resultTablePopup.close();
+                                        panel.predictionRowRequested(index);
                                     }
                                 }
                             }

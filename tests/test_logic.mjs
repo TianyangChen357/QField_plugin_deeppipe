@@ -114,6 +114,36 @@ assert.equal(
 );
 assert.equal(context.projectServiceSettings(serviceSettingsJson, "/projects/c.qgs", "Same title"), null);
 
+let resultStatesJson = context.updatePredictionResultState(
+  "{}",
+  "/projects/a.qgs",
+  "Same title",
+  {
+    path: "/projects/DeepPipe_prediction_latest_a.geojson",
+    layer_name: "DeepPipe Prediction Results",
+    job_id: "job-a",
+    threshold: 0.85,
+    selected_count: 12,
+    saved_at: "2026-08-06T18:00:00.000Z",
+  },
+);
+assert.equal(
+  context.predictionResultState(resultStatesJson, "/projects/a.qgs", "Same title").job_id,
+  "job-a",
+);
+assert.equal(
+  context.predictionResultState(resultStatesJson, "/projects/a.qgs", "Same title").selected_count,
+  12,
+);
+assert.equal(context.predictionResultState(resultStatesJson, "/projects/b.qgs", "Same title"), null);
+resultStatesJson = context.updatePredictionResultState(
+  resultStatesJson,
+  "/projects/a.qgs",
+  "Same title",
+  null,
+);
+assert.equal(context.predictionResultState(resultStatesJson, "/projects/a.qgs", "Same title"), null);
+
 const bulkRecords = Array.from({ length: 500 }, (_, index) => ({
   fid: index + 1,
   nodeId: `uuid-${index + 1}`,

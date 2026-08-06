@@ -7,22 +7,23 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const pluginRoot = path.resolve(here, "../plugin/deeppipe-mobile");
 const projectRoot = path.resolve(here, "../project-template");
 
-for (const required of ["main.qml", "metadata.txt", "icon.svg", "DeepPipePanel.qml", "logic/DeepPipe.js"]) {
+for (const required of ["main.qml", "metadata.txt", "icon.svg", "results-table.svg", "DeepPipePanel.qml", "logic/DeepPipe.js"]) {
   assert.equal(fs.existsSync(path.join(pluginRoot, required)), true, `Missing ${required}`);
 }
 
 const metadata = fs.readFileSync(path.join(pluginRoot, "metadata.txt"), "utf8");
-for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.5.13", "icon=icon.svg"]) {
+for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.5.14", "icon=icon.svg"]) {
   assert.equal(metadata.includes(expected), true, `metadata.txt lacks ${expected}`);
 }
 
 const main = fs.readFileSync(path.join(pluginRoot, "main.qml"), "utf8");
-assert.equal(main.includes('readonly property string pluginVersion: "0.5.13"'), true, "main.qml has the wrong plugin version");
+assert.equal(main.includes('readonly property string pluginVersion: "0.5.14"'), true, "main.qml has the wrong plugin version");
 for (const expected of [
   "iface.addItemToPluginsToolbar",
   "handler.registerHandler",
   "LayerUtils.createFeatureIteratorFromRectangle",
   "LayerUtils.memoryLayerFromJsonString",
+  "LayerUtils.loadVectorLayer",
   "LayerUtils.saveVectorLayerAs",
   "LayerUtils.loadRasterLayer",
   "ProjectUtils.addMapLayer",
@@ -32,6 +33,7 @@ for (const expected of [
   "GeometryUtils.reprojectRectangle",
   "projectMappingsJson",
   "projectServiceSettingsJson",
+  "projectPredictionResultsJson",
   "DeepPipe.projectServiceSettings",
   "DeepPipe.updateProjectServiceSettings",
   "qgisProject.fileName",
@@ -47,10 +49,15 @@ for (const expected of [
   "mapInteractionOverlay",
   "testApiConnections",
   "setPredictionConfig",
-  "createPredictionResultLayers",
+  "createPredictionResultLayer",
+  "attachPersistentPredictionLayer",
+  "restorePersistedPredictionResult",
   "QFieldItems.GeometryRenderer",
-  "featureCollectionMultiLineWkt",
   "predictionAttributeTable",
+  "predictionLayerLegendVisible",
+  "iface.addItemToCanvasActionsToolbar",
+  "focusPredictionResult",
+  "GeometryUtils.boundingBox",
   "/download",
   "Qt.openUrlExternally",
   "platformUtilities.sendDatasetTo",
@@ -71,12 +78,15 @@ assert.equal(
 );
 assert.equal(main.includes("MapCanvasPointHandler.Priority"), false, "main.qml references a QField-local QML type unavailable to app plugins");
 assert.equal(main.includes("Qt.point(minimumX, minimumY)"), false, "main.qml passes QPointF values to createRectangleFromPoints");
+const completedBlock = main.match(/Component\.onCompleted\s*:\s*\{([\s\S]*?)\n\s*\}/)?.[1] || "";
+assert.equal(completedBlock.includes("ensurePointHandlerRegistered"), false, "main.qml registers the point handler while idle at startup");
+assert.equal(main.includes("property var predictionResultLayers"), false, "main.qml still maintains duplicate prediction layers");
 for (const removed of ["remoteCog", "remote_cog", "gdalRemoteRasterUri", "apiBaseUrlRequested", "passApiBaseUrlRequested"]) {
   assert.equal(main.includes(removed), false, `main.qml retains removed configuration ${removed}`);
 }
 
 const panel = fs.readFileSync(path.join(pluginRoot, "DeepPipePanel.qml"), "utf8");
-assert.equal(panel.includes('property string pluginVersion: "0.5.13"'), true, "DeepPipePanel.qml has the wrong plugin version");
+assert.equal(panel.includes('property string pluginVersion: "0.5.14"'), true, "DeepPipePanel.qml has the wrong plugin version");
 for (const duplicateFontAssignment of ["font: setupTab.font", "font: predictionTab.font", "font: assessmentTab.font"]) {
   assert.equal(panel.includes(duplicateFontAssignment), false, `DeepPipePanel.qml retains ${duplicateFontAssignment}`);
 }
@@ -97,8 +107,10 @@ for (const expected of [
   "Not applicable for this material",
   "DeepPipe field guide",
   "Cancel active prediction",
-  "Save combined result as GeoJSON",
+  "Save another GeoJSON copy",
   "View result attribute table",
+  "predictionRowRequested",
+  "tap a row to zoom and highlight",
   "Download complete job ZIP",
   "Run live service-life assessment",
 ]) {
@@ -115,6 +127,8 @@ for (const expected of [
   "choosePipeResultFilename",
   "decorateLiveResult",
   "partitionPredictionResults",
+  "predictionResultState",
+  "updatePredictionResultState",
   "predictionAttributeTable",
   "featureCollectionMultiLineWkt",
   "normalizeLiveAssessment",

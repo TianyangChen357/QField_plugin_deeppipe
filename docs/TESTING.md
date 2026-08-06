@@ -1,4 +1,4 @@
-# DeepPipe Mobile 0.5.13 test matrix
+# DeepPipe Mobile 0.5.14 test matrix
 
 ## Baseline
 
@@ -14,7 +14,7 @@ Use only synthetic/non-sensitive inlets against the current unauthenticated test
 
 | Test | Expected |
 |---|---|
-| Install `deeppipe-mobile-v0.5.13.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
+| Install `deeppipe-mobile-v0.5.14.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
 | Open QField with no project | Toolbar/panel stay safe and report that a project must be opened. |
 | Open a plain project with no point layer | Configuration explains that an inlet point layer is required; Assessment remains available once a map project is open. |
 | Open a plain project with one/multiple point layers | Configuration suggests or lists point layers; user can choose a layer and ID field without editing project XML. |
@@ -26,6 +26,7 @@ Use only synthetic/non-sensitive inlets against the current unauthenticated test
 | Configure prediction settings in project A, then open unconfigured project B | Project B uses the documented prediction defaults; no setting from project A remains. Reopening A restores only A's local settings. |
 | Rename/remove the configured field | Configuration becomes actionable and blocks Prediction until a valid field is confirmed. |
 | Disable/re-enable plugin | No duplicate toolbar buttons or tap handlers after restart. |
+| Fresh install, before opening DeepPipe | One-finger map pan works immediately; the plugin does not reserve map taps while idle. |
 | Rotate with panel open | Drawer, selection bar, and action buttons remain usable. |
 
 ## Touch inlet selection
@@ -78,12 +79,15 @@ Test both EPSG:4326 and a projected North Carolina inlet layer. The current hit 
 | Weak/temporary network loss | Task ID remains saved; GET polling backs off and retries. |
 | Submit response timeout | Plugin does not auto-retry POST and explains duplicate-job risk. |
 | Cancel active task | Only the stored task ID is cancelled; terminal status is shown. |
-| Successful non-empty result | Threshold-qualified `Pipes.geojson` features become WGS84 layers named `DeepPipe Pipes <job-id> · Predicted` and/or `· Potential`; map overlays draw them green/yellow. |
+| Successful non-empty result | Threshold-qualified `Pipes.geojson` features become one layer named `DeepPipe Prediction Results`; map overlays draw Predicted green and Potential yellow. |
+| Toggle result in legend | The single result layer and both colored overlays turn off/on together. |
+| Run a second successful prediction | The prior result layer is removed, the same latest-result file is replaced, and exactly one result layer remains. |
+| Restart QField/reopen project | The latest saved result layer, colors, table, and completed job ID are restored automatically. |
 | Successful empty result | Success with 0 pipes; plugin does not try to create an empty memory layer. |
 | `Structures.geojson` exists but Pipes is missing | Plugin waits; it never loads Structures as a pipe layer. |
-| Remove result | Only the plugin-created memory layer disappears. |
+| Remove result | The plugin-created layer disappears and is no longer restored for that project. |
 | Export result | Combined `DeepPipe_prediction_<job-id>.geojson` is written directly in the existing project folder (or device Documents fallback); geometry, CRS, outcome, and job fields survive a reload. |
-| Attribute table | **View result attribute table** shows every returned Predicted/Potential row and every property, with horizontal and vertical scrolling. |
+| Attribute table | **View result attribute table** and the map-actions result icon show every returned Predicted/Potential row and every property, with horizontal and vertical scrolling. Tapping a row closes the table, zooms to the pipe, selects it, and highlights it. |
 | Download complete job ZIP | Device browser opens `/api/jobs/jobs/{task_id}/download`; downloaded ZIP contains the server-provided Structures, Pipes, and log files. |
 | Potential outcomes present | Potential count is numeric, yellow Potential geometry is visible, and combined export retains `deeppipe_outcome=potential`. |
 | API 400/422/404/500 | FastAPI message is readable; no duplicate submission is attempted. |
@@ -125,7 +129,7 @@ Inspect live features for `job_id=<task-id>`, `analysis_mode=live_api`, and `rev
 - The current API advertises no authentication or task ownership. Do not use sensitive data.
 - `/health` proves only the web process responds; it is not a model/worker readiness guarantee.
 - Verify/fix server-side feet-based distance calculations for EPSG:4326 before interpreting model output.
-- Map layers are temporary; GeoJSON export is available, but no automatic GeoPackage/QFieldCloud result sync exists yet.
+- One latest-result GeoJSON is persisted per project and restored by the plugin, but no automatic GeoPackage/QFieldCloud result sync exists yet.
 - Interactive project mappings are local to one device. Put optional DeepPipe defaults in the QGIS project when every team device should receive the same mapping.
 - Direct COG/GeoTIFF selection is intentionally out of scope for the mobile plugin; raster review uses the PyPASS XYZ catalog.
-- Exact green/yellow colors are supplied by non-interactive map overlays; underlying memory-layer renderer symbols may still use QField defaults in the layer legend. Persistent production layers should own their rule-based QGIS styles.
+- Exact green/yellow colors are supplied by non-interactive map overlays bound to one transparent OGR layer's legend visibility. Persistent production layers should own their rule-based QGIS styles.
