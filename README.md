@@ -42,6 +42,46 @@ are Predicted and `class=0` pipes are Potential after MST post-processing.
 The plugin also supports the live PyPASS XYZ soil/service-life layers. Direct COG
 selection is intentionally not exposed in the mobile workflow.
 
+## Release history
+
+### v0.5.14 — 2026-08-06
+
+- Restored normal one-finger map panning by registering the DeepPipe point handler only while inlet selection is active and releasing it when selection finishes or is cancelled.
+- Consolidated Predicted and Potential pipes into one `DeepPipe Prediction Results` layer. Its legend switch now controls both the green/yellow display and the underlying result layer.
+- Persisted the latest result as a project-local GeoJSON and restored it when the project is reopened. Each successful prediction replaces the previous result instead of adding duplicate layers.
+- Added a result-table action to the QField map toolbar. Selecting a row selects the matching feature, zooms to the pipe, and temporarily highlights it on the map.
+
+### v0.5.13 — 2026-08-06
+
+- Split threshold-qualified GNN-positive pipes into **Predicted** (`class=1`, green) and **Potential** (`class=0`, yellow) after MST post-processing. Features below the submitted probability threshold, without a valid probability, or marked GNN-negative are excluded.
+- Added a dynamic result table containing all fields returned in `Pipes.geojson`.
+- Added download of the server's complete job ZIP while retaining combined GeoJSON export.
+
+### v0.5.12 — 2026-08-06
+
+- Fixed the geometry-type regression that prevented **Tap**, **Box**, and **Visible** from selecting or highlighting inlet features.
+- Removed the duplicate inlet-layer chooser from Pipeline Prediction; the workflow now uses the layer and unique-ID field saved in **Configuration**.
+- Simplified visible prediction weights to **GNN probability** and **Length**. Elevation is no longer exposed in the mobile UI and is submitted as zero.
+
+### v0.5.11 — 2026-08-06
+
+- Synchronized the plugin metadata, source, versioned installer, and stable `latest.zip` under an explicit new version so QField can reliably replace cached older installations.
+- Made `deeppipe-mobile-latest.zip` byte-identical to the tested versioned package and committed both with the release source.
+- Changed the GitHub Actions packaging workflow to manual validation so installer availability no longer depends on a hosted runner acquiring an automatic job.
+
+### v0.5.0 — 2026-08-06
+
+- Reworked the app-wide interface for touch use and introduced a dedicated **Configuration** tab for per-project inlet-layer and UUID-field mapping.
+- Added project-specific GNN settings, including maximum distance, probability threshold, neighborhood size, MST, and probability/length weighting defaults.
+- Added one status card for the built-in Prediction and PyPASS services, removed user-facing API-origin inputs, and removed direct COG selection from the mobile workflow.
+- Renamed and reorganized the two primary workflows as **Pipeline Prediction** and **Service Life Assessment**, with QML compatibility fixes included in the packaged release.
+
+### Earlier foundation
+
+- **v0.4.0:** Connected Prediction and PyPASS Assessment to their live APIs, added combined result export and outcome display layers, and added hosted PyPASS XYZ raster layers.
+- **v0.3.0:** Made the app-wide plugin usable with ordinary QField projects, added per-project inlet-layer/unique-ID setup and UUID guidance, and introduced bulk **Tap**, **Box**, and **Visible** map selection.
+- **v0.2.0:** Published the initial standalone QField plugin with map-based inlet selection, live Prediction submission and polling, a mock assessment workflow, a demo project, documentation, and automated checks.
+
 ## Install in QField
 
 Use the stable `dist/deeppipe-mobile-latest.zip` direct HTTPS URL. Then open
