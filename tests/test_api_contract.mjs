@@ -72,6 +72,21 @@ const layerOptions = await layerOptionsResponse.json();
 assert.ok(Array.isArray(layerOptions.materials) && layerOptions.materials.length >= 7);
 assert.ok(String(layerOptions.tile_url).includes("{material_id}"));
 
+// The public portal currently routes a literal terminal `.png` to its web
+// frontend. The encoded-dot form reaches the same FastAPI tile route and is
+// the transport form used by the QField plugin.
+const soilTileResponse = await passRequest("/api/pypass/tiles/ph/12/1128/1619%2Epng");
+assert.equal(soilTileResponse.status, 200);
+assert.match(String(soilTileResponse.headers.get("content-type") || ""), /^image\/png/i);
+assert.ok((await soilTileResponse.arrayBuffer()).byteLength > 100);
+
+const serviceLifeTileResponse = await passRequest(
+  "/api/pypass/service-life-tiles/galvanized/12/1128/1619%2Epng?min_years=50&gauge=16",
+);
+assert.equal(serviceLifeTileResponse.status, 200);
+assert.match(String(serviceLifeTileResponse.headers.get("content-type") || ""), /^image\/png/i);
+assert.ok((await serviceLifeTileResponse.arrayBuffer()).byteLength > 100);
+
 const assessmentResponse = await passRequest("/api/pypass/service-life", {
   method: "POST",
   headers: { "content-type": "application/json" },

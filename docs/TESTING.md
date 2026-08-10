@@ -1,4 +1,4 @@
-# DeepPipe Mobile 0.5.14 test matrix
+# DeepPipe Mobile 0.6.0 test matrix
 
 ## Baseline
 
@@ -14,16 +14,20 @@ Use only synthetic/non-sensitive inlets against the current unauthenticated test
 
 | Test | Expected |
 |---|---|
-| Install `deeppipe-mobile-v0.5.14.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
+| Install `deeppipe-mobile-v0.6.0.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
 | Open QField with no project | Toolbar/panel stay safe and report that a project must be opened. |
 | Open a plain project with no point layer | Configuration explains that an inlet point layer is required; Assessment remains available once a map project is open. |
-| Open a plain project with one/multiple point layers | Configuration suggests or lists point layers; user can choose a layer and ID field without editing project XML. |
+| Open an unconfigured project with one/multiple point layers | No layer is silently selected; the ID-field control is disabled and says to select an inlet layer first. |
+| Choose inlet layer A | The ID-field control becomes enabled and lists only fields from layer A. |
+| Change from layer A to layer B | The prior ID choice clears, even when both layers contain a field named `id`; only layer B fields are listed. |
 | Confirm setup, close, and reopen | The same project mapping is restored on this device. |
 | Open Pipeline Prediction after setup | The configured inlet layer is shown in the selection instructions; no second layer chooser is present. |
 | Open demo project | `Inlets` and `inlet_uuid` resolve from project defaults. |
 | Switch to another ordinary project | Selection/result state clears; the other project gets its own mapping; a server job is not silently cancelled. |
 | Open two same-title projects at different paths | Their mappings, prediction settings, and pending jobs do not cross-contaminate. |
 | Configure prediction settings in project A, then open unconfigured project B | Project B uses the documented prediction defaults; no setting from project A remains. Reopening A restores only A's local settings. |
+| Open Pipeline Prediction with defaults | The Predict action is visible before optional settings; **Specify prediction settings** is closed. |
+| Expand/customize/reset prediction settings | Custom settings persist only for this project; reset restores the documented DeepPipe preset. |
 | Rename/remove the configured field | Configuration becomes actionable and blocks Prediction until a valid field is confirmed. |
 | Disable/re-enable plugin | No duplicate toolbar buttons or tap handlers after restart. |
 | Fresh install, before opening DeepPipe | One-finger map pan works immediately; the plugin does not reserve map taps while idle. |
@@ -80,6 +84,8 @@ Test both EPSG:4326 and a projected North Carolina inlet layer. The current hit 
 | Submit response timeout | Plugin does not auto-retry POST and explains duplicate-job risk. |
 | Cancel active task | Only the stored task ID is cancelled; terminal status is shown. |
 | Successful non-empty result | Threshold-qualified `Pipes.geojson` features become one layer named `DeepPipe Prediction Results`; map overlays draw Predicted green and Potential yellow. |
+| Two or more pipes in the same outcome class | All remain visible as one `MULTILINESTRING` overlay; display does not depend on selecting a table row. |
+| Row highlight expires | The focused cyan highlight disappears, while the normal Predicted/Potential result remains visible. |
 | Toggle result in legend | The single result layer and both colored overlays turn off/on together. |
 | Run a second successful prediction | The prior result layer is removed, the same latest-result file is replaced, and exactly one result layer remains. |
 | Restart QField/reopen project | The latest saved result layer, colors, table, and completed job ID are restored automatically. |
@@ -101,18 +107,20 @@ Inspect live features for `job_id=<task-id>`, `analysis_mode=live_api`, and `rev
 | Use a demo project with `api_mode=mock` | Header shows MOCK; Predict becomes local Preview. |
 | Same mock inputs/settings | Same topology/probabilities each run. |
 
-## Live PyPASS Assessment and raster review
+## Live PyPASS point-based and raster-based queries
 
 | Test | Expected |
 |---|---|
-| Wilmington controlled point | Live soil values and seven material rows are shown. |
+| Pick a Wilmington-area map point | The panel returns and runs the live point query automatically; soil values and seven material rows are shown. |
+| Use a valid current GNSS location | The same point query runs automatically. |
 | Location with partial coverage | Null soil/material values display `Unavailable`; server warnings are visible. |
-| Choose a fixed material (for example RCP) | Gauge selector is disabled and the live comparison uses no gauge. |
-| Choose a gauge-dependent material | Gauge selector is enabled and only its advertised gauge values can be chosen. |
-| Change selected gauge | The comparison uses the matching gauge-dependent material row. |
+| Inspect point gauge label | Gauge-dependent point results use the explicit documented gauge 16; hidden raster state cannot change them. |
 | Inspect language | Results are comparisons and never claim a recommended material. |
-| Add pH/resistivity/chloride | Catalog `tile_url` is resolved against the PyPASS origin and the XYZ layer appears. |
-| Add service-life layer | Material, threshold, and required gauge are reflected in the layer name and tile URL. |
+| Choose a fixed raster material (for example RCP) | Gauge selector is disabled and says it is not applicable. |
+| Choose a gauge-dependent raster material | Gauge selector is enabled and only its advertised gauge values can be chosen. |
+| Add service-life raster | Material, threshold, and required gauge are reflected in the layer name and tile URL; the drawer returns to the map. |
+| View raster at regional zoom 5–6 and local zoom 7–19 | Tiles render across the supported zoom range. Transparent pixels mean no coverage or service life below the threshold. |
+| Inspect live tile requests | Encoded-dot soil and service-life paths return HTTP 200 and `image/png`; QField does not receive the portal's literal-`.png` 404 page. |
 | Add Aluminum/Aluminized CSP with gauge 18 | Catalog validation uses the material's advertised default gauge and reports the adjustment instead of requesting invalid tiles. |
 | Project switch/plugin unload | Plugin-created raster layers are removed cleanly. |
 
@@ -132,4 +140,4 @@ Inspect live features for `job_id=<task-id>`, `analysis_mode=live_api`, and `rev
 - One latest-result GeoJSON is persisted per project and restored by the plugin, but no automatic GeoPackage/QFieldCloud result sync exists yet.
 - Interactive project mappings are local to one device. Put optional DeepPipe defaults in the QGIS project when every team device should receive the same mapping.
 - Direct COG/GeoTIFF selection is intentionally out of scope for the mobile plugin; raster review uses the PyPASS XYZ catalog.
-- Exact green/yellow colors are supplied by non-interactive map overlays bound to one transparent OGR layer's legend visibility. Persistent production layers should own their rule-based QGIS styles.
+- Exact green/yellow colors are supplied by non-interactive map overlays bound to one native-visible OGR layer's legend visibility. Persistent production layers should own their rule-based QGIS styles.
