@@ -43,14 +43,6 @@ assert.equal(normalized.max_search_radius, 1500);
 assert.equal(normalized.classification_threshold, 0.51);
 assert.ok(Math.abs(normalized.prob_weight + normalized.elev_weight + normalized.length_weight - 1) < 1e-9);
 
-assert.equal(
-  context.suggestedNodeIdField(["name", "node_id", "inlet_uuid"], ""),
-  "inlet_uuid",
-);
-assert.equal(
-  context.suggestedNodeIdField(["name", "node_id", "inlet_uuid"], "node_id"),
-  "node_id",
-);
 assert.equal(context.projectKey("/projects/a.qgs", "Same title"), "path:/projects/a.qgs");
 assert.equal(context.projectKey("", "Same title"), "title:Same title");
 const mappingJson = context.updateProjectMapping("{}", "/projects/a.qgs", "Same title", {
@@ -311,6 +303,22 @@ assert.equal(
   context.featureCollectionMultiLineWkt(livePipeResult),
   "MULTILINESTRING ((-80 35, -80 35.0005))",
 );
+const sameOutcomeOverlayWkt = context.multiLineWktFromFeatureWkts([
+  "LineString (-80 35, -80 35.0005)",
+  "LineString (-80 35.0005, -79.9995 35.001)",
+]);
+assert.equal(
+  sameOutcomeOverlayWkt,
+  "MULTILINESTRING ((-80 35, -80 35.0005), (-80 35.0005, -79.9995 35.001))",
+);
+assert.doesNotMatch(sameOutcomeOverlayWkt, /GEOMETRYCOLLECTION/i);
+assert.equal(
+  context.multiLineWktFromFeatureWkts([
+    "MultiLineString ((0 0, 1 1), (1 1, 2 1))",
+    "LineString (2 1, 3 2)",
+  ]),
+  "MULTILINESTRING ((0 0, 1 1), (1 1, 2 1), (2 1, 3 2))",
+);
 
 assert.equal(context.normalizeJobStatus("SUCCESS"), "succeeded");
 assert.equal(context.normalizeJobStatus("REVOKED"), "cancelled");
@@ -324,6 +332,24 @@ assert.equal(context.normalizeHttpsUrl("file:///tmp/layer.tif"), "");
 assert.match(
   context.xyzRasterUri("https://example.org/tiles/{z}/{x}/{y}.png?gauge=16&min_years=20", 4, 19),
   /url=https:\/\/example\.org\/tiles\/%7Bz%7D\/%7Bx%7D\/%7By%7D\.png%3Fgauge%3D16%26min_years%3D20/,
+);
+assert.equal(
+  context.pypassTileTransportUrl("https://lab.yyworkshop.com/api/pypass/tiles/ph/{z}/{x}/{y}.png"),
+  "https://lab.yyworkshop.com/api/pypass/tiles/ph/{z}/{x}/{y}%2Epng",
+);
+assert.equal(
+  context.pypassTileTransportUrl(
+    "https://lab.yyworkshop.com/api/pypass/service-life-tiles/galvanized/{z}/{x}/{y}.png?min_years=50&gauge=16",
+  ),
+  "https://lab.yyworkshop.com/api/pypass/service-life-tiles/galvanized/{z}/{x}/{y}%2Epng?min_years=50&gauge=16",
+);
+assert.equal(
+  context.pypassTileTransportUrl("https://example.org/tiles/{z}/{x}/{y}.png"),
+  "https://example.org/tiles/{z}/{x}/{y}.png",
+);
+assert.match(
+  context.xyzRasterUri("https://lab.yyworkshop.com/api/pypass/tiles/ph/{z}/{x}/{y}%2Epng", 7, 19),
+  /%7By%7D%252Epng/,
 );
 assert.equal(context.appendUrlQuery("/tiles/{z}/{x}/{y}.png", "min_years=20"), "/tiles/{z}/{x}/{y}.png?min_years=20");
 assert.equal(context.appendUrlQuery("/tiles/{z}/{x}/{y}.png?style=life", "min_years=20"), "/tiles/{z}/{x}/{y}.png?style=life&min_years=20");

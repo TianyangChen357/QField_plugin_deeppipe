@@ -76,24 +76,6 @@ function stringList(values) {
     return result;
 }
 
-function suggestedNodeIdField(fieldNames, preferred) {
-    var names = stringList(fieldNames);
-    var requested = String(preferred || "").trim();
-    if (requested && names.indexOf(requested) >= 0) return requested;
-
-    var lowerToOriginal = {};
-    names.forEach(function (name) { lowerToOriginal[name.toLowerCase()] = name; });
-    var priorities = [
-        "inlet_uuid", "node_uuid", "asset_uuid", "uuid",
-        "node_id", "inlet_id", "asset_id", "assetid",
-        "structure_id", "globalid", "id", "objectid"
-    ];
-    for (var index = 0; index < priorities.length; index += 1) {
-        if (lowerToOriginal[priorities[index]]) return lowerToOriginal[priorities[index]];
-    }
-    return "";
-}
-
 function projectKey(projectPath, projectName) {
     var path = String(projectPath || "").trim();
     if (path) return "path:" + path;
@@ -538,10 +520,20 @@ function normalizeHttpsUrl(value) {
     return url;
 }
 
+function pypassTileTransportUrl(value) {
+    var url = String(value || "").trim();
+    // The current public portal intercepts literal .png tile paths before they
+    // reach FastAPI. Encoding only the terminal dot preserves the documented
+    // route while allowing the request to pass through the proxy unchanged.
+    if (!/^https:\/\/lab\.yyworkshop\.com\/api\/pypass\//i.test(url)) return url;
+    return url.replace(/\.png(?=([?#]|$))/i, "%2Epng");
+}
+
 function xyzRasterUri(value, minimumZoom, maximumZoom) {
     var url = normalizeHttpsUrl(value);
     if (!url) return "";
     var encodedUrl = url
+            .replace(/%/g, "%25")
             .replace(/\{/g, "%7B")
             .replace(/\}/g, "%7D")
             .replace(/\?/g, "%3F")
@@ -848,6 +840,34 @@ function featureCollectionMultiLineWkt(featureCollection) {
         }
     });
     return lines.length > 0 ? "MULTILINESTRING (" + lines.join(", ") + ")" : "";
+}
+
+function multiLineWktFromFeatureWkts(wkts) {
+    var parts = [];
+    var dimension = null;
+    var values = Array.isArray(wkts) ? wkts : [];
+
+    for (var index = 0; index < values.length; index += 1) {
+        var text = String(values[index] || "").trim();
+        var match = text.match(/^\s*(LINESTRING|MULTILINESTRING)\s*(ZM|Z|M)?\s*(\([\s\S]*\))\s*$/i);
+        if (!match) continue;
+
+        var nextDimension = String(match[2] || "").toUpperCase();
+        if (dimension === null) dimension = nextDimension;
+        if (dimension !== nextDimension) return "";
+
+        var body = String(match[3] || "").trim();
+        if (body.length < 2 || body[0] !== "(" || body[body.length - 1] !== ")") continue;
+        if (String(match[1]).toUpperCase() === "MULTILINESTRING") {
+            body = body.slice(1, -1).trim();
+            if (!body) continue;
+        }
+        parts.push(body);
+    }
+
+    if (parts.length === 0) return "";
+    return "MULTILINESTRING" + (dimension ? " " + dimension : "") +
+            " (" + parts.join(", ") + ")";
 }
 
 function normalizeJobStatus(value) {

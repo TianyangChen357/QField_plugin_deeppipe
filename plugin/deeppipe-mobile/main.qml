@@ -12,7 +12,7 @@ Item {
     id: plugin
     objectName: "deepPipeMobilePlugin"
 
-    readonly property string pluginVersion: "0.5.14"
+    readonly property string pluginVersion: "0.6.0"
     readonly property string defaultApiBaseUrl: "https://lab.yyworkshop.com/predapi"
     readonly property string defaultPassApiBaseUrl: "https://lab.yyworkshop.com"
 
@@ -92,9 +92,10 @@ Item {
     property string assessmentMessage: "Choose a map or GNSS location."
     property var assessmentResult: null
     property double assessmentNominalDiameter: 16
-    property int assessmentGauge: 16
-    property string assessmentMaterialId: "rcp"
-    property int assessmentMinimumYears: 0
+    readonly property int pointAssessmentGauge: 16
+    property int rasterGauge: 16
+    property string rasterMaterialId: "rcp"
+    property int rasterMinimumYears: 0
 
     property var managedRasterLayers: []
     property var managedRasterLayerNames: []
@@ -117,9 +118,10 @@ Item {
     }
 
     // QField's app-wide QML API does not expose categorized renderer mutation.
-    // A single transparent, persistent vector layer owns legend visibility,
-    // selection, and attributes. These overlays supply the exact class colors
-    // and follow that layer's legend state.
+    // A single persistent vector layer owns legend visibility, selection, and
+    // attributes. Its native renderer remains visible as a fail-safe, while
+    // these wider overlays supply the exact class colors and follow the same
+    // legend state.
     QFieldItems.GeometryRenderer {
         id: predictedResultOverlay
         parent: mapCanvas ? mapCanvas : plugin
@@ -502,21 +504,6 @@ Item {
         fieldNames = names;
     }
 
-    function suggestedLayerId() {
-        if (layerIds.length === 1) return String(layerIds[0]);
-        var preferredNames = ["inlets", "inlet", "catch basins", "catchbasins", "storm drains", "stormwater inlets", "nodes"];
-        var layers = qgisProject ? ProjectUtils.mapLayers(qgisProject) : {};
-        for (var preferredIndex = 0; preferredIndex < preferredNames.length; preferredIndex += 1) {
-            for (var layerIndex = 0; layerIndex < layerIds.length; layerIndex += 1) {
-                var candidateId = String(layerIds[layerIndex]);
-                if (layers[candidateId] && String(layers[candidateId].name).toLowerCase() === preferredNames[preferredIndex]) {
-                    return candidateId;
-                }
-            }
-        }
-        return "";
-    }
-
     function refreshSetupState() {
         if (!hasProject) {
             setupState = "no_project";
@@ -582,18 +569,11 @@ Item {
             mappingSource = "project";
             mappingConfirmed = Boolean(nextLayerId);
         }
-        if (!nextLayerId) {
-            nextLayerId = suggestedLayerId();
-            nextNodeField = configuredNodeField;
-            mappingSource = nextLayerId ? "suggestion" : "";
-            mappingConfirmed = false;
-        }
-
         inletLayerId = nextLayerId;
         inletLayer = layerById(nextLayerId);
         inletLayerName = inletLayer ? String(inletLayer.name) : "";
         refreshFieldNames();
-        nodeIdField = DeepPipe.suggestedNodeIdField(fieldNames, nextNodeField);
+        nodeIdField = fieldNames.indexOf(nextNodeField) >= 0 ? nextNodeField : "";
         if (!nodeIdField || fieldNames.indexOf(nodeIdField) < 0) mappingConfirmed = false;
         refreshSetupState();
 
@@ -644,6 +624,11 @@ Item {
             toast("The selected point layer could not be loaded.");
             return;
         }
+        if (String(layerId) === inletLayerId && nextLayer === inletLayer) {
+            refreshFieldNames();
+            refreshSetupState();
+            return;
+        }
         selectedFids = [];
         selectedPoints = [];
         removePredictionLayer();
@@ -651,7 +636,10 @@ Item {
         inletLayerName = String(nextLayer.name);
         inletLayer = nextLayer;
         refreshFieldNames();
-        nodeIdField = DeepPipe.suggestedNodeIdField(fieldNames, nodeIdField);
+        // A field name from another layer is not a stable mapping, even when
+        // both layers happen to contain a same-named column such as `id`.
+        // Require the user to choose explicitly from the new layer's fields.
+        nodeIdField = "";
         mappingConfirmed = false;
         mappingSource = "user";
         predictionStatus = "idle";
@@ -665,10 +653,16 @@ Item {
             toast("Wait for or cancel the active Prediction job before changing project setup.");
             return;
         }
+        var nextField = String(fieldName || "").trim();
+        if (!nextField || fieldNames.indexOf(nextField) < 0) {
+            toast("Choose an ID field from the selected inlet layer.");
+            refreshSetupState();
+            return;
+        }
         selectedFids = [];
         selectedPoints = [];
         removePredictionLayer();
-        nodeIdField = String(fieldName || "").trim();
+        nodeIdField = nextField;
         mappingConfirmed = false;
         mappingSource = "user";
         predictionStatus = "idle";
@@ -966,6 +960,7 @@ Item {
         interactionMode = "idle";
         releasePointHandler();
         panelDrawer.open();
+        runLiveAssessment();
         return true;
     }
 
@@ -980,6 +975,7 @@ Item {
             return;
         }
         setAssessmentLocation(information.latitude, information.longitude, "GNSS");
+        runLiveAssessment();
     }
 
     function runLiveAssessment() {
@@ -1025,7 +1021,7 @@ Item {
                 toast(assessmentMessage);
                 return;
             }
-            var result = DeepPipe.normalizeLiveAssessment(payload, assessmentGauge);
+            var result = DeepPipe.normalizeLiveAssessment(payload, pointAssessmentGauge);
             if (!result.ok) {
                 assessmentStatus = "failed";
                 assessmentMessage = "PyPASS returned an incomplete location response.";
@@ -1041,23 +1037,19 @@ Item {
         });
     }
 
-    function setAssessmentInputs(nominalDiameter, gauge, materialId, minimumYears) {
-        var diameter = Number(nominalDiameter);
-        if (Number.isFinite(diameter) && diameter > 0) assessmentNominalDiameter = diameter;
+    function setRasterInputs(gauge, materialId, minimumYears) {
         var material = DeepPipe.passMaterialById(materialId);
         var allowedGauges = DeepPipe.passGaugeOptions(material.id);
         var nextGauge = Math.round(Number(gauge));
-        assessmentMaterialId = material.id;
+        rasterMaterialId = material.id;
         if (allowedGauges.length === 0) {
-            assessmentGauge = 0;
+            rasterGauge = 0;
         } else if (allowedGauges.indexOf(nextGauge) >= 0) {
-            assessmentGauge = nextGauge;
+            rasterGauge = nextGauge;
         } else {
-            assessmentGauge = Number(material.default_gauge || allowedGauges[0]);
+            rasterGauge = Number(material.default_gauge || allowedGauges[0]);
         }
-        assessmentMinimumYears = Math.max(0, Math.round(Number(minimumYears) || 0));
-        assessmentResult = null;
-        if (assessmentStatus === "succeeded") assessmentStatus = "ready";
+        rasterMinimumYears = Math.max(0, Math.round(Number(minimumYears) || 0));
     }
 
     function addManagedRasterLayer(uri, layerName, provider, opacity) {
@@ -1091,14 +1083,16 @@ Item {
         managedRasterLayerNames = names;
         rasterStatus = "succeeded";
         rasterMessage = "Added " + layerName + " to the current map.";
+        if (mapCanvas && typeof mapCanvas.refresh === "function") mapCanvas.refresh();
         toast(rasterMessage);
         return true;
     }
 
     function addXyzRasterFromTemplate(template, layerName) {
         var fullUrl = DeepPipe.resolveCatalogUrl(defaultPassApiBaseUrl, template);
-        var uri = DeepPipe.xyzRasterUri(fullUrl, 7, 19);
-        return addManagedRasterLayer(uri, layerName, "wms", 0.78);
+        var transportUrl = DeepPipe.pypassTileTransportUrl(fullUrl);
+        var uri = DeepPipe.xyzRasterUri(transportUrl, 5, 19);
+        return addManagedRasterLayer(uri, layerName, "wms", 1.0);
     }
 
     function addPassVariableRaster(variableId, fallbackName) {
@@ -1125,12 +1119,15 @@ Item {
         });
     }
 
-    function addPassServiceLifeRaster() {
+    function addPassServiceLifeRaster(materialId, gauge, minimumYears) {
         if (activeRequest) {
             toast("Wait for the current DeepPipe request before adding a raster.");
             return;
         }
-        var material = DeepPipe.passMaterialById(assessmentMaterialId);
+        setRasterInputs(gauge, materialId, minimumYears);
+        var material = DeepPipe.passMaterialById(rasterMaterialId);
+        var requestedGauge = rasterGauge;
+        var requestedMinimumYears = rasterMinimumYears;
         rasterStatus = "loading";
         rasterMessage = "Reading live PyPASS service-life layer options…";
         sendApiRequestTo(defaultPassApiBaseUrl, "GET", "/api/pypass/service-life-layer/options", null, 30000,
@@ -1141,12 +1138,12 @@ Item {
             template = template.replace("{material_id}", encodeURIComponent(material.id));
             var gaugeSelection = DeepPipe.passRasterGauge(
                         material.id,
-                        assessmentGauge,
+                        requestedGauge,
                         ok && payload && Array.isArray(payload.materials) ? payload.materials : []);
-            var query = "min_years=" + Math.max(0, assessmentMinimumYears);
+            var query = "min_years=" + Math.max(0, requestedMinimumYears);
             if (gaugeSelection.requiresGauge) query += "&gauge=" + gaugeSelection.gauge;
             template = DeepPipe.appendUrlQuery(template, query);
-            var layerName = "PyPASS " + material.name + " ≥ " + assessmentMinimumYears + " yr" +
+            var layerName = "PyPASS " + material.name + " ≥ " + requestedMinimumYears + " yr" +
                     (gaugeSelection.requiresGauge ? " · gauge " + gaugeSelection.gauge : "");
             if (!addXyzRasterFromTemplate(template, layerName)) {
                 rasterStatus = "failed";
@@ -1159,6 +1156,7 @@ Item {
                         gaugeSelection.gauge + " was used.";
                 toast(rasterMessage);
             }
+            panelDrawer.close();
         });
     }
 
@@ -1239,9 +1237,11 @@ Item {
     function setPredictionOverlayWkts(renderer, wkts, crs) {
         renderer.geometryWrapper.clear();
         if (!Array.isArray(wkts) || wkts.length === 0) return false;
-        var wkt = wkts.length === 1
-                ? String(wkts[0])
-                : "GEOMETRYCOLLECTION (" + wkts.join(", ") + ")";
+        // QField's LinePolygonShape does not render GeometryCollection because
+        // QGIS reports it as GeometryType.Unknown. Always aggregate pipe
+        // features into an actual MultiLineString, including on project restore.
+        var wkt = DeepPipe.multiLineWktFromFeatureWkts(wkts);
+        if (!wkt) return false;
         var geometry = GeometryUtils.createGeometryFromWkt(wkt);
         if (!geometry) return false;
         renderer.geometryWrapper.crs = crs;
@@ -1324,7 +1324,10 @@ Item {
                     "DeepPipe Prediction Results",
                     "ogr");
         if (!layer || !layer.isValid) return false;
-        layer.opacity = 0;
+        // Keep the native thin line visible beneath the wider categorized
+        // overlays. This guarantees a usable map result if an unexpected pipe
+        // geometry cannot be converted into an overlay.
+        layer.opacity = 1.0;
         if (typeof layer.setCustomProperty === "function") {
             layer.setCustomProperty("deeppipe/managed_prediction_result", true);
             layer.setCustomProperty("deeppipe/result_path", String(path || ""));
@@ -1978,13 +1981,12 @@ Item {
             assessmentStatus: plugin.assessmentStatus
             assessmentMessage: plugin.assessmentMessage
             assessmentResult: plugin.assessmentResult
-            assessmentNominalDiameter: plugin.assessmentNominalDiameter
-            assessmentGauge: plugin.assessmentGauge
-            assessmentMaterialId: plugin.assessmentMaterialId
-            assessmentGaugeOptions: DeepPipe.passGaugeOptions(plugin.assessmentMaterialId)
-            assessmentMaterialRequiresGauge: DeepPipe.passMaterialById(plugin.assessmentMaterialId).requires_gauge
-            assessmentMaterialName: DeepPipe.passMaterialById(plugin.assessmentMaterialId).name
-            assessmentMinimumYears: plugin.assessmentMinimumYears
+            pointAssessmentGauge: plugin.pointAssessmentGauge
+            rasterGauge: plugin.rasterGauge
+            rasterMaterialId: plugin.rasterMaterialId
+            rasterGaugeOptions: DeepPipe.passGaugeOptions(plugin.rasterMaterialId)
+            rasterMaterialRequiresGauge: DeepPipe.passMaterialById(plugin.rasterMaterialId).requires_gauge
+            rasterMinimumYears: plugin.rasterMinimumYears
             mockMode: !appSettings.useLiveApi
             apiConnectionStatus: plugin.apiConnectionStatus
             apiConnectionMessage: plugin.apiConnectionMessage
@@ -2010,6 +2012,10 @@ Item {
                 for (var settingKey in settings) nextConfig[settingKey] = settings[settingKey];
                 plugin.setPredictionConfig(nextConfig);
             }
+            onResetPredictionSettingsRequested: {
+                plugin.setPredictionConfig(DeepPipe.predictionDefaults());
+                plugin.toast("DeepPipe default prediction settings restored.");
+            }
             onRunPredictionRequested: plugin.startPrediction()
             onCancelPredictionRequested: plugin.cancelLivePrediction()
             onRemovePredictionLayerRequested: plugin.removePredictionLayer(true)
@@ -2022,14 +2028,12 @@ Item {
             }
             onPickAssessmentLocationRequested: plugin.startAssessmentLocationSelection()
             onUseGnssRequested: plugin.useCurrentGnssLocation()
-            onAssessmentInputsRequested: function (diameter, gauge, materialId, minimumYears) {
-                plugin.setAssessmentInputs(diameter, gauge, materialId, minimumYears);
+            onRasterInputsRequested: function (gauge, materialId, minimumYears) {
+                plugin.setRasterInputs(gauge, materialId, minimumYears);
             }
-            onRunAssessmentRequested: plugin.runLiveAssessment()
-            onAddPassVariableRasterRequested: function (variableId, name) {
-                plugin.addPassVariableRaster(variableId, name);
+            onAddPassServiceLifeRasterRequested: function (materialId, gauge, minimumYears) {
+                plugin.addPassServiceLifeRaster(materialId, gauge, minimumYears);
             }
-            onAddPassServiceLifeRasterRequested: plugin.addPassServiceLifeRaster()
             onRemoveRasterLayersRequested: plugin.removeManagedRasterLayers()
             onTestApiRequested: plugin.testApiConnections()
         }

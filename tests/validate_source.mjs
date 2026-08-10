@@ -12,12 +12,12 @@ for (const required of ["main.qml", "metadata.txt", "icon.svg", "results-table.s
 }
 
 const metadata = fs.readFileSync(path.join(pluginRoot, "metadata.txt"), "utf8");
-for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.5.14", "icon=icon.svg"]) {
+for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.6.0", "icon=icon.svg"]) {
   assert.equal(metadata.includes(expected), true, `metadata.txt lacks ${expected}`);
 }
 
 const main = fs.readFileSync(path.join(pluginRoot, "main.qml"), "utf8");
-assert.equal(main.includes('readonly property string pluginVersion: "0.5.14"'), true, "main.qml has the wrong plugin version");
+assert.equal(main.includes('readonly property string pluginVersion: "0.6.0"'), true, "main.qml has the wrong plugin version");
 for (const expected of [
   "iface.addItemToPluginsToolbar",
   "handler.registerHandler",
@@ -53,6 +53,8 @@ for (const expected of [
   "attachPersistentPredictionLayer",
   "restorePersistedPredictionResult",
   "QFieldItems.GeometryRenderer",
+  "DeepPipe.multiLineWktFromFeatureWkts",
+  "DeepPipe.pypassTileTransportUrl",
   "predictionAttributeTable",
   "predictionLayerLegendVisible",
   "iface.addItemToCanvasActionsToolbar",
@@ -81,12 +83,21 @@ assert.equal(main.includes("Qt.point(minimumX, minimumY)"), false, "main.qml pas
 const completedBlock = main.match(/Component\.onCompleted\s*:\s*\{([\s\S]*?)\n\s*\}/)?.[1] || "";
 assert.equal(completedBlock.includes("ensurePointHandlerRegistered"), false, "main.qml registers the point handler while idle at startup");
 assert.equal(main.includes("property var predictionResultLayers"), false, "main.qml still maintains duplicate prediction layers");
+assert.equal(main.includes("function suggestedLayerId"), false, "main.qml still auto-selects an inlet layer for a fresh project");
+assert.equal(main.includes("DeepPipe.suggestedNodeIdField"), false, "main.qml still auto-selects or carries an ID field");
+assert.equal(main.includes('nodeIdField = "";'), true, "changing the inlet layer does not clear the prior ID field");
+assert.equal(
+  main.includes('"GEOMETRYCOLLECTION (" + wkts.join'),
+  false,
+  "main.qml aggregates result overlays into an unsupported GeometryCollection",
+);
+assert.equal(main.includes("layer.opacity = 1.0"), true, "the persistent result layer lacks a native-renderer fallback");
 for (const removed of ["remoteCog", "remote_cog", "gdalRemoteRasterUri", "apiBaseUrlRequested", "passApiBaseUrlRequested"]) {
   assert.equal(main.includes(removed), false, `main.qml retains removed configuration ${removed}`);
 }
 
 const panel = fs.readFileSync(path.join(pluginRoot, "DeepPipePanel.qml"), "utf8");
-assert.equal(panel.includes('property string pluginVersion: "0.5.14"'), true, "DeepPipePanel.qml has the wrong plugin version");
+assert.equal(panel.includes('property string pluginVersion: "0.6.0"'), true, "DeepPipePanel.qml has the wrong plugin version");
 for (const duplicateFontAssignment of ["font: setupTab.font", "font: predictionTab.font", "font: assessmentTab.font"]) {
   assert.equal(panel.includes(duplicateFontAssignment), false, `DeepPipePanel.qml retains ${duplicateFontAssignment}`);
 }
@@ -101,7 +112,9 @@ for (const expected of [
   "Number of neighbors (k)",
   "Enable MST post-processing",
   "1  Select inlets on the map",
-  "2  Prediction settings",
+  "2  Run pipeline prediction",
+  "Specify prediction settings (optional)",
+  "Reset to DeepPipe defaults",
   "GNN probability",
   "Pipe material",
   "Not applicable for this material",
@@ -112,13 +125,52 @@ for (const expected of [
   "predictionRowRequested",
   "tap a row to zoom and highlight",
   "Download complete job ZIP",
-  "Run live service-life assessment",
+  "Point-based query",
+  "Raster-based query",
+  "Gauge-dependent point estimates use gauge",
+  "Add service-life raster to map",
 ]) {
   assert.equal(panel.includes(expected), true, `DeepPipePanel.qml lacks ${expected}`);
 }
+assert.ok(
+  panel.indexOf("2  Run pipeline prediction") < panel.indexOf("Specify prediction settings (optional)"),
+  "the primary Prediction action must appear before optional settings",
+);
+assert.equal(panel.includes("property bool predictionSettingsExpanded: false"), true, "optional prediction settings are not closed by default");
+assert.ok(
+  panel.indexOf("onClicked: panel.runPredictionRequested()") < panel.indexOf("id: predictionSettingsDisclosure"),
+  "the Predict button appears after the optional-settings disclosure",
+);
+assert.equal(panel.includes("visible: panel.predictionSettingsExpanded"), true, "advanced prediction controls are not disclosure-controlled");
+assert.equal(panel.includes("Select an inlet layer first"), true, "the ID field lacks its disabled pre-layer state");
+assert.equal(panel.includes("panel.inletLayerId.length > 0 ? panel.fieldNames : []"), true, "the ID field model is not scoped to the selected layer");
 for (const removed of ["predictionLayerBox", "Choose the field inlet layer", "elevationWeightSlider", 'text: "Elevation"']) {
   assert.equal(panel.includes(removed), false, `DeepPipePanel.qml retains removed prediction UI ${removed}`);
 }
+for (const removed of [
+  "1  Assessment location",
+  "2  Compare service-life estimates",
+  "3  Review hosted raster layers",
+  "addPassVariableRasterRequested",
+  "Run live service-life assessment",
+]) {
+  assert.equal(panel.includes(removed), false, `DeepPipePanel.qml retains removed assessment UI ${removed}`);
+}
+assert.equal(
+  main.includes('setAssessmentLocation(Number(wgs84.y), Number(wgs84.x), "Map point");') &&
+    main.includes("panelDrawer.open();\n        runLiveAssessment();"),
+  true,
+  "map-point selection does not auto-run the live assessment",
+);
+assert.equal(
+  main.includes('setAssessmentLocation(information.latitude, information.longitude, "GNSS");\n        runLiveAssessment();'),
+  true,
+  "GNSS selection does not auto-run the live assessment",
+);
+assert.equal(main.includes("DeepPipe.xyzRasterUri(transportUrl, 5, 19)"), true, "XYZ raster minimum zoom is not regional-view friendly");
+assert.equal(main.includes('addManagedRasterLayer(uri, layerName, "wms", 1.0)'), true, "XYZ raster opacity still dims server-rendered tiles");
+const rasterInputsBlock = main.match(/function setRasterInputs[\s\S]*?\n\s*function addManagedRasterLayer/)?.[0] || "";
+assert.equal(rasterInputsBlock.includes("assessmentResult = null"), false, "raster inputs still clear the point-query result");
 
 const logic = fs.readFileSync(path.join(pluginRoot, "logic/DeepPipe.js"), "utf8");
 for (const expected of [
@@ -131,8 +183,10 @@ for (const expected of [
   "updatePredictionResultState",
   "predictionAttributeTable",
   "featureCollectionMultiLineWkt",
+  "multiLineWktFromFeatureWkts",
   "normalizeLiveAssessment",
   "normalizeHttpsUrl",
+  "pypassTileTransportUrl",
   "xyzRasterUri",
   "resolveCatalogUrl",
   "passRasterGauge",

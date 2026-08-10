@@ -1,8 +1,8 @@
-# DeepPipe Mobile API contract — 0.5.14
+# DeepPipe Mobile API contract — 0.6.0
 
 Prediction was checked against `https://lab.yyworkshop.com/predapi/openapi.json`
-and successful job outputs on 2026-08-06. PyPASS endpoints were checked live on
-2026-08-04.
+and successful job outputs on 2026-08-06. PyPASS point, catalog, and in-bounds
+PNG tile responses were checked live on 2026-08-10.
 
 ## Health
 
@@ -174,7 +174,11 @@ GET /api/pypass/service-life-layer/options
 ```
 
 The plugin resolves root-relative `tile_url` templates against the PyPASS
-origin and loads them through QGIS's XYZ/WMS provider. Soil and service-life
+origin and loads them through QGIS's XYZ/WMS provider. The current public portal
+intercepts a literal terminal `.png` before it reaches FastAPI; v0.6.0 therefore
+uses the equivalent `%2Epng` transport path and escapes the percent sign once
+more inside the QGIS data-source URI. Live contract tests require an in-bounds
+soil tile and service-life tile to return HTTP 200 with `image/png`. Soil and service-life
 tile routes are used by the live frontend but are not yet documented in the
 current OpenAPI document, so the catalog response is preferred over a hard-coded
 template and the backend should add these routes to OpenAPI. Gauge values are
@@ -182,6 +186,6 @@ validated against each catalog material's `gauge_sizes`; an unsupported value
 falls back to that material's advertised `default_gauge` and is reported in the
 plugin status.
 
-The mobile plugin does not expose a direct COG/GeoTIFF URL input. Raster review
-uses the catalog's hosted XYZ templates and does not guess or construct raw
-object URLs.
+The mobile plugin does not expose a direct COG/GeoTIFF URL input. Its user-facing
+raster query uses the catalog's hosted service-life XYZ template and does not
+guess or construct raw object URLs.
