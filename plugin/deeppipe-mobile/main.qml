@@ -12,7 +12,7 @@ Item {
     id: plugin
     objectName: "deepPipeMobilePlugin"
 
-    readonly property string pluginVersion: "0.6.0"
+    readonly property string pluginVersion: "0.6.1"
     readonly property string defaultApiBaseUrl: "https://lab.yyworkshop.com/predapi"
     readonly property string defaultPassApiBaseUrl: "https://lab.yyworkshop.com"
 
@@ -100,7 +100,7 @@ Item {
     property var managedRasterLayers: []
     property var managedRasterLayerNames: []
     property string rasterStatus: "idle"
-    property string rasterMessage: "No PyPASS raster has been added by the plugin."
+    property string rasterMessage: "No PyPASS service-life raster is currently displayed."
 
     property bool selectionMutationInProgress: false
     property var geometryHighlighter: iface.findItemByObjectName("geometryHighlighter")
@@ -1052,7 +1052,7 @@ Item {
         rasterMinimumYears = Math.max(0, Math.round(Number(minimumYears) || 0));
     }
 
-    function addManagedRasterLayer(uri, layerName, provider, opacity) {
+    function addManagedRasterLayer(uri, layerName, provider, opacity, replaceAll) {
         if (!qgisProject || !uri) {
             rasterStatus = "failed";
             rasterMessage = "Open a project and provide a valid raster source.";
@@ -1061,18 +1061,28 @@ Item {
         }
         var names = managedRasterLayerNames.slice();
         var layers = managedRasterLayers.slice();
+        var layer = LayerUtils.loadRasterLayer(String(uri), String(layerName), String(provider || "gdal"));
+        if (!layer || !layer.isValid) {
+            rasterStatus = "failed";
+            rasterMessage = "QField could not open '" + layerName + "'. Check the URL, TLS access, and raster format.";
+            toast(rasterMessage);
+            return false;
+        }
         var existingIndex = names.indexOf(String(layerName));
-        if (existingIndex >= 0) {
+        if (replaceAll) {
+            layers.forEach(function (existingLayer) {
+                if (existingLayer) ProjectUtils.removeMapLayer(qgisProject, existingLayer);
+            });
+            names = [];
+            layers = [];
+        } else if (existingIndex >= 0) {
             ProjectUtils.removeMapLayer(qgisProject, layers[existingIndex]);
             names.splice(existingIndex, 1);
             layers.splice(existingIndex, 1);
-            managedRasterLayers = layers.slice();
-            managedRasterLayerNames = names.slice();
         }
-        var layer = LayerUtils.loadRasterLayer(String(uri), String(layerName), String(provider || "gdal"));
-        if (!layer || !layer.isValid || !ProjectUtils.addMapLayer(qgisProject, layer)) {
+        if (!ProjectUtils.addMapLayer(qgisProject, layer)) {
             rasterStatus = "failed";
-            rasterMessage = "QField could not open '" + layerName + "'. Check the URL, TLS access, and raster format.";
+            rasterMessage = "QField could not display '" + layerName + "'.";
             toast(rasterMessage);
             return false;
         }
@@ -1082,17 +1092,17 @@ Item {
         managedRasterLayers = layers;
         managedRasterLayerNames = names;
         rasterStatus = "succeeded";
-        rasterMessage = "Added " + layerName + " to the current map.";
+        rasterMessage = "Viewing " + layerName + " on the current map.";
         if (mapCanvas && typeof mapCanvas.refresh === "function") mapCanvas.refresh();
         toast(rasterMessage);
         return true;
     }
 
-    function addXyzRasterFromTemplate(template, layerName) {
+    function addXyzRasterFromTemplate(template, layerName, replaceAll) {
         var fullUrl = DeepPipe.resolveCatalogUrl(defaultPassApiBaseUrl, template);
         var transportUrl = DeepPipe.pypassTileTransportUrl(fullUrl);
         var uri = DeepPipe.xyzRasterUri(transportUrl, 5, 19);
-        return addManagedRasterLayer(uri, layerName, "wms", 1.0);
+        return addManagedRasterLayer(uri, layerName, "wms", 1.0, Boolean(replaceAll));
     }
 
     function addPassVariableRaster(variableId, fallbackName) {
@@ -1145,13 +1155,13 @@ Item {
             template = DeepPipe.appendUrlQuery(template, query);
             var layerName = "PyPASS " + material.name + " ≥ " + requestedMinimumYears + " yr" +
                     (gaugeSelection.requiresGauge ? " · gauge " + gaugeSelection.gauge : "");
-            if (!addXyzRasterFromTemplate(template, layerName)) {
+            if (!addXyzRasterFromTemplate(template, layerName, true)) {
                 rasterStatus = "failed";
                 rasterMessage = message || "The service-life raster could not be added.";
                 return;
             }
             if (gaugeSelection.adjusted) {
-                rasterMessage = "Added " + layerName + ". Gauge " + gaugeSelection.requestedGauge +
+                rasterMessage = "Viewing " + layerName + ". Gauge " + gaugeSelection.requestedGauge +
                         " is unavailable for " + material.name + "; the catalog default gauge " +
                         gaugeSelection.gauge + " was used.";
                 toast(rasterMessage);
@@ -1169,7 +1179,7 @@ Item {
         managedRasterLayers = [];
         managedRasterLayerNames = [];
         rasterStatus = "idle";
-        rasterMessage = "No PyPASS raster has been added by the plugin.";
+        rasterMessage = "No PyPASS service-life raster is currently displayed.";
     }
 
     function isManagedPredictionLayer(layer) {
@@ -1216,6 +1226,13 @@ Item {
         predictionSummary = null;
         if (!preserveCompletedJob) lastCompletedJobId = "";
         if (!preserveStoredResult) clearPredictionResultState();
+    }
+
+    function clearPredictionResults() {
+        removePredictionLayer(false, false);
+        predictionStatus = "idle";
+        predictionMessage = "";
+        toast("Prediction results cleared.");
     }
 
     function predictionResultFilePath() {
@@ -2018,7 +2035,7 @@ Item {
             }
             onRunPredictionRequested: plugin.startPrediction()
             onCancelPredictionRequested: plugin.cancelLivePrediction()
-            onRemovePredictionLayerRequested: plugin.removePredictionLayer(true)
+            onRemovePredictionLayerRequested: plugin.clearPredictionResults()
             onExportPredictionRequested: plugin.exportPredictionResult()
             onSharePredictionExportRequested: plugin.sharePredictionExport()
             onDownloadPredictionZipRequested: plugin.downloadCompletedJobZip()

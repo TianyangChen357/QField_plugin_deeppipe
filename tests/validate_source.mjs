@@ -12,12 +12,12 @@ for (const required of ["main.qml", "metadata.txt", "icon.svg", "results-table.s
 }
 
 const metadata = fs.readFileSync(path.join(pluginRoot, "metadata.txt"), "utf8");
-for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.6.0", "icon=icon.svg"]) {
+for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.6.1", "icon=icon.svg", "description=DeepPipe Stormwater Pipe Prediction and Service Life Assessment for QField"]) {
   assert.equal(metadata.includes(expected), true, `metadata.txt lacks ${expected}`);
 }
 
 const main = fs.readFileSync(path.join(pluginRoot, "main.qml"), "utf8");
-assert.equal(main.includes('readonly property string pluginVersion: "0.6.0"'), true, "main.qml has the wrong plugin version");
+assert.equal(main.includes('readonly property string pluginVersion: "0.6.1"'), true, "main.qml has the wrong plugin version");
 for (const expected of [
   "iface.addItemToPluginsToolbar",
   "handler.registerHandler",
@@ -52,6 +52,7 @@ for (const expected of [
   "createPredictionResultLayer",
   "attachPersistentPredictionLayer",
   "restorePersistedPredictionResult",
+  "clearPredictionResults",
   "QFieldItems.GeometryRenderer",
   "DeepPipe.multiLineWktFromFeatureWkts",
   "DeepPipe.pypassTileTransportUrl",
@@ -97,7 +98,7 @@ for (const removed of ["remoteCog", "remote_cog", "gdalRemoteRasterUri", "apiBas
 }
 
 const panel = fs.readFileSync(path.join(pluginRoot, "DeepPipePanel.qml"), "utf8");
-assert.equal(panel.includes('property string pluginVersion: "0.6.0"'), true, "DeepPipePanel.qml has the wrong plugin version");
+assert.equal(panel.includes('property string pluginVersion: "0.6.1"'), true, "DeepPipePanel.qml has the wrong plugin version");
 for (const duplicateFontAssignment of ["font: setupTab.font", "font: predictionTab.font", "font: assessmentTab.font"]) {
   assert.equal(panel.includes(duplicateFontAssignment), false, `DeepPipePanel.qml retains ${duplicateFontAssignment}`);
 }
@@ -128,7 +129,8 @@ for (const expected of [
   "Point-based query",
   "Raster-based query",
   "Gauge-dependent point estimates use gauge",
-  "Add service-life raster to map",
+  "View Service Life Raster on Map",
+  "Clear prediction results",
 ]) {
   assert.equal(panel.includes(expected), true, `DeepPipePanel.qml lacks ${expected}`);
 }
@@ -168,7 +170,11 @@ assert.equal(
   "GNSS selection does not auto-run the live assessment",
 );
 assert.equal(main.includes("DeepPipe.xyzRasterUri(transportUrl, 5, 19)"), true, "XYZ raster minimum zoom is not regional-view friendly");
-assert.equal(main.includes('addManagedRasterLayer(uri, layerName, "wms", 1.0)'), true, "XYZ raster opacity still dims server-rendered tiles");
+assert.equal(main.includes('addManagedRasterLayer(uri, layerName, "wms", 1.0, Boolean(replaceAll))'), true, "XYZ raster opacity still dims server-rendered tiles");
+assert.equal(main.includes('addXyzRasterFromTemplate(template, layerName, true)'), true, "service-life raster does not replace the previous managed raster");
+assert.equal(main.includes('onRemovePredictionLayerRequested: plugin.clearPredictionResults()'), true, "Clear prediction results is not connected to the full clear action");
+const clearResultsBlock = main.match(/function clearPredictionResults[\s\S]*?\n\s*function predictionResultFilePath/)?.[0] || "";
+assert.equal(clearResultsBlock.includes("removePredictionLayer(false, false)"), true, "Clear prediction results preserves a stored result or completed job");
 const rasterInputsBlock = main.match(/function setRasterInputs[\s\S]*?\n\s*function addManagedRasterLayer/)?.[0] || "";
 assert.equal(rasterInputsBlock.includes("assessmentResult = null"), false, "raster inputs still clear the point-query result");
 

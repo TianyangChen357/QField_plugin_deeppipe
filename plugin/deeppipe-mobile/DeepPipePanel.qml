@@ -46,10 +46,10 @@ Item {
     property string passApiConnectionStatus: "unknown"
     property string passApiConnectionMessage: "Not checked"
     property string rasterStatus: "idle"
-    property string rasterMessage: "No PyPASS raster has been added by the plugin."
+    property string rasterMessage: "No PyPASS service-life raster is currently displayed."
     property var rasterLayerNames: []
     property string activeJobId: ""
-    property string pluginVersion: "0.6.0"
+    property string pluginVersion: "0.6.1"
 
     signal closeRequested()
     signal refreshProjectRequested()
@@ -1046,7 +1046,7 @@ Item {
                                 Button {
                                     Layout.fillWidth: true
                                     implicitHeight: 48
-                                    text: panel.mockMode ? "Remove preview result layer" : "Remove prediction result layer"
+                                    text: "Clear prediction results"
                                     visible: panel.predictionResultLayer.length > 0
                                     flat: true
                                     onClicked: panel.removePredictionLayerRequested()
@@ -1092,7 +1092,7 @@ Item {
                             }
                             Text {
                                 Layout.fillWidth: true
-                                text: "Use a point query for exact values at one location, or add a thresholded service-life raster for map review."
+                                text: "Use a point query for exact values at one location, or view a thresholded service-life raster on the map."
                                 color: panel.mutedInk
                                 font.pixelSize: 13
                                 wrapMode: Text.WordWrap
@@ -1271,7 +1271,7 @@ Item {
                                 }
                                 Text {
                                     Layout.fillWidth: true
-                                    text: "Choose the pipe material, gauge when applicable, and minimum service life. The resulting online XYZ layer is added to the current QField map."
+                                    text: "Choose the pipe material, gauge when applicable, and minimum service life. The latest online XYZ raster replaces the previous Service Life raster on the map."
                                     color: panel.mutedInk
                                     font.pixelSize: 12
                                     wrapMode: Text.WordWrap
@@ -1410,7 +1410,7 @@ Item {
                                 Button {
                                     Layout.fillWidth: true
                                     implicitHeight: 52
-                                    text: panel.rasterStatus === "loading" ? "Adding raster…" : "Add service-life raster to map"
+                                    text: panel.rasterStatus === "loading" ? "Loading raster…" : "View Service Life Raster on Map"
                                     enabled: panel.assessmentReady && !panel.predictionBusy() &&
                                              !panel.assessmentBusy() && panel.rasterStatus !== "loading"
                                     font.bold: true
@@ -2065,7 +2065,7 @@ Item {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "Raster-based query adds an online service-life layer after you choose a material, an applicable gauge, and a minimum service-life threshold. Transparent areas do not meet the threshold or fall outside PyPASS coverage."
+                        text: "Raster-based query displays one online service-life layer after you choose a material, an applicable gauge, and a minimum service-life threshold. Viewing another setting replaces the prior layer. Transparent areas do not meet the threshold or fall outside PyPASS coverage."
                         color: panel.ink
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap

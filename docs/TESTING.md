@@ -1,4 +1,4 @@
-# DeepPipe Mobile 0.6.0 test matrix
+# DeepPipe Mobile 0.6.1 test matrix
 
 ## Baseline
 
@@ -14,7 +14,7 @@ Use only synthetic/non-sensitive inlets against the current unauthenticated test
 
 | Test | Expected |
 |---|---|
-| Install `deeppipe-mobile-v0.6.0.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
+| Install `deeppipe-mobile-v0.6.1.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
 | Open QField with no project | Toolbar/panel stay safe and report that a project must be opened. |
 | Open a plain project with no point layer | Configuration explains that an inlet point layer is required; Assessment remains available once a map project is open. |
 | Open an unconfigured project with one/multiple point layers | No layer is silently selected; the ID-field control is disabled and says to select an inlet layer first. |
@@ -118,7 +118,8 @@ Inspect live features for `job_id=<task-id>`, `analysis_mode=live_api`, and `rev
 | Inspect language | Results are comparisons and never claim a recommended material. |
 | Choose a fixed raster material (for example RCP) | Gauge selector is disabled and says it is not applicable. |
 | Choose a gauge-dependent raster material | Gauge selector is enabled and only its advertised gauge values can be chosen. |
-| Add service-life raster | Material, threshold, and required gauge are reflected in the layer name and tile URL; the drawer returns to the map. |
+| View service-life raster | Material, threshold, and required gauge are reflected in the layer name and tile URL; the prior managed raster is replaced and the drawer returns to the map. |
+| Clear prediction results | Current result layer, overlays, table, summary, completed-job reference, and saved restore state are cleared. |
 | View raster at regional zoom 5–6 and local zoom 7–19 | Tiles render across the supported zoom range. Transparent pixels mean no coverage or service life below the threshold. |
 | Inspect live tile requests | Encoded-dot soil and service-life paths return HTTP 200 and `image/png`; QField does not receive the portal's literal-`.png` 404 page. |
 | Add Aluminum/Aluminized CSP with gauge 18 | Catalog validation uses the material's advertised default gauge and reports the adjustment instead of requesting invalid tiles. |
