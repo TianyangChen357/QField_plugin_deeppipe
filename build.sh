@@ -22,6 +22,8 @@ rm -f "$PLUGIN_ZIP" "$LATEST_PLUGIN_ZIP" "$BUNDLE_ZIP"
 )
 cp "$PLUGIN_ZIP" "$LATEST_PLUGIN_ZIP"
 
+python3 "$SCRIPT_DIR/scripts/package_project_template.py"
+
 STAGING_DIR="$(mktemp -d)"
 trap 'rm -rf "$STAGING_DIR"' EXIT
 mkdir -p "$STAGING_DIR/plugin" "$STAGING_DIR/plugin-install" "$STAGING_DIR/tests"

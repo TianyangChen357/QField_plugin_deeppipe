@@ -292,20 +292,27 @@ for (const qml of ["main.qml", "DeepPipePanel.qml"]) {
   balancedDelimiters(fs.readFileSync(path.join(pluginRoot, qml), "utf8"), qml);
 }
 
-const demoProject = fs.readFileSync(path.join(projectRoot, "DeepPipe_Mobile_Demo.qgs"), "utf8");
-for (const expected of ["<qgis", "</qgis>", "api_mode", "inlets.geojson"]) {
+const templateManifest = JSON.parse(fs.readFileSync(path.join(projectRoot, "template.json"), "utf8"));
+assert.match(templateManifest.template_version, /^\d+\.\d+\.\d+$/);
+assert.equal(templateManifest.node_count, 50);
+const demoProject = fs.readFileSync(path.join(projectRoot, templateManifest.project_file), "utf8");
+for (const expected of ["<qgis", "</qgis>", "api_mode", "./data/inlets.gpkg|layername=inlets"]) {
   assert.equal(demoProject.includes(expected), true, `Demo QGIS project lacks ${expected}`);
 }
 
 const demoInlets = JSON.parse(fs.readFileSync(path.join(projectRoot, "data/inlets.geojson"), "utf8"));
 assert.equal(demoInlets.type, "FeatureCollection");
-assert.ok(Array.isArray(demoInlets.features) && demoInlets.features.length >= 3);
+assert.ok(Array.isArray(demoInlets.features));
+assert.equal(demoInlets.features.length, templateManifest.node_count);
 for (const feature of demoInlets.features) {
   assert.equal(feature.geometry?.type, "Point");
   assert.ok(String(feature.properties?.node_id || "").trim());
-  assert.match(String(feature.properties?.inlet_uuid || ""), /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  assert.ok(String(feature.properties?.source_id || "").trim());
+  assert.match(String(feature.properties?.inlet_uuid || ""), /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 }
 assert.equal(new Set(demoInlets.features.map((feature) => feature.properties.inlet_uuid)).size, demoInlets.features.length);
+const editableData = fs.readFileSync(path.join(projectRoot, templateManifest.editable_datasource));
+assert.equal(editableData.subarray(0, 16).toString(), "SQLite format 3\u0000");
 assert.ok(demoProject.includes("<node_id_field type=\"QString\">inlet_uuid</node_id_field>"));
 assert.ok(demoProject.includes("uuid('WithoutBraces')"));
 assert.equal(demoProject.includes("api_base_url"), false);

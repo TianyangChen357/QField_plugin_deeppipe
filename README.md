@@ -12,7 +12,29 @@ https://eegs4y29nw3lws.charlotte.edu:8080/deeppipe/mobile/deeppipe-mobile-latest
 
 The current server uses a self-signed certificate and requires network access to the campus host. Installation and API requests in QField require that certificate to be trusted on the device, or a deployment proxy with a trusted certificate. The existing public lab endpoint does not serve this Progressive release.
 
-Enable **DeepPipe Mobile**, then open the included synthetic demo or an ordinary QField project with an inlet point layer. The installer returns ZIP bytes directly, with `main.qml` at its root. The versioned package is `dist/deeppipe-mobile-v0.7.0.zip`; `dist/deeppipe-mobile-latest.zip` contains the same bytes.
+Enable **DeepPipe Mobile**, then import the editable 50-point template below or open an ordinary QField project with an inlet point layer. The plugin installer returns ZIP bytes directly, with `main.qml` at its root. The versioned plugin package is `dist/deeppipe-mobile-v0.7.0.zip`; `dist/deeppipe-mobile-latest.zip` contains the same bytes.
+
+## Editable 50-point project template
+
+The project contains the same 50 Raleigh inlet locations as the Portal's Web App sample, with the original inventory IDs preserved. Its local GeoPackage supports moving points, editing attributes, adding more points, and deleting points. New inlets receive a stable UUID automatically. Save edits before selecting inlets for a new prediction; changing the input of an existing job requires a new prediction.
+
+Download the project separately from the plugin:
+
+```text
+https://eegs4y29nw3lws.charlotte.edu:8080/deeppipe/mobile/deeppipe-qfield-template-latest.zip
+```
+
+The Portal's **DeepPipe Mobile** page provides its project QR and **Open project in QField** button. The [official project import URI](https://docs.qfield.org/how-to/advanced-how-tos/qr-codes/#compressed-web-projects) is:
+
+```text
+qfield://local?import=https%3A%2F%2Feegs4y29nw3lws.charlotte.edu%3A8080%2Fdeeppipe%2Fmobile%2Fdeeppipe-qfield-template-latest.zip
+```
+
+Open it on a device with QField installed and accept **Import Confirmation**. The ZIP contains one project with relative data paths, so the external deep-link import can open it automatically. In QField's **Open local files → + → Import URL**, use the QR button to scan the same code; if the imported folder is shown, tap `DeepPipe_Mobile_Demo.qgs`. The Plugin Manager's installer QR control is for plugins, so use the separate project import flow.
+
+For a manual transfer, extract the complete ZIP to a writable folder and open its `.qgs` file without separating it from `data/`. Keep a clean ZIP as a starting template; each imported copy has its own editable data. Local edits do not change the server's template or other users' copies. Project viewing/editing works offline; live prediction needs the campus/VPN connection and trusted server certificate. No reference pipe connections or prefilled observations are included.
+
+See [project instructions](project-template/README.md) for editing and reusing the template. Template version **1.0.0** is independent of plugin version **0.7.0**.
 
 ## Predict and add field observations
 
@@ -41,7 +63,8 @@ Prediction uses `https://eegs4y29nw3lws.charlotte.edu:8080/deeppipe/predapi`; Py
 ## Source and validation
 
 - `plugin/deeppipe-mobile/`: plugin source.
-- `project-template/`: ten synthetic inlet points and a demo QField project.
+- `project-template/`: 50 Raleigh inlet points, editable GeoPackage, portable QField project, and source metadata.
+- `dist/deeppipe-qfield-template-latest.zip`: standalone project template; versioned copy `deeppipe-qfield-template-v1.0.0.zip`.
 - `docs/`: API, architecture, project schema, and testing guidance.
 - `tests/`: pure logic, source, read-only live contract, native Qt UI, and mocked QField-host runtime checks.
 - `dist/DeepPipe_QField_API_Test_v0.7.0.zip`: optional debugging bundle produced by the build; this is not the plugin installer.
@@ -51,10 +74,11 @@ node tests/test_logic.mjs
 node tests/validate_source.mjs
 node tests/test_api_contract.mjs
 ./scripts/test_qml.sh
+QT_QPA_PLATFORM=offscreen python3 tests/test_project_template.py
 ./build.sh
 ```
 
-Qt tests need Qt 6.5+ with Qt Quick Controls and Qt Test; see [testing guidance](docs/TESTING.md). Native UI and mocked-host tests do not load the QField/QGIS SDK or establish physical-device behavior. Complete the Android/iOS QField smoke matrix before field use.
+Qt tests need Qt 6.5+ with Qt Quick Controls and Qt Test. The project edit test uses native PyQGIS (`python3-qgis` on Debian) in a disposable copy. See [testing guidance](docs/TESTING.md). Automated checks do not establish physical-device import, camera, or background behavior. Complete the Android/iOS QField smoke matrix before field use.
 
 ## Release history
 

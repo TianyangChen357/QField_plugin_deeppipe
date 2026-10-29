@@ -1,132 +1,1012 @@
 {
   "type": "FeatureCollection",
-  "name": "Inlets",
+  "name": "Raleigh 50-node template fixture",
   "crs": {
     "type": "name",
     "properties": {
-      "name": "urn:ogc:def:crs:OGC:1.3:CRS84"
+      "name": "EPSG:4326"
     }
   },
   "features": [
     {
       "type": "Feature",
-      "id": 1,
+      "id": "254114",
       "properties": {
-        "node_id": "DP-001",
-        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f001",
-        "captured_at": "2026-07-31T08:10:00-04:00",
-        "status": "surveyed",
-        "source": "synthetic_demo"
+        "node_id": "254114",
+        "source_id": "254114",
+        "inlet_uuid": "d476e688-1f7a-597e-a94c-635ba37799bd",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
       },
-      "geometry": { "type": "Point", "coordinates": [-80.84672, 35.23012] }
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65414694845225,
+          35.8101843589903
+        ]
+      }
     },
     {
       "type": "Feature",
-      "id": 2,
+      "id": "254113",
       "properties": {
-        "node_id": "DP-002",
-        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f002",
-        "captured_at": "2026-07-31T08:14:00-04:00",
-        "status": "surveyed",
-        "source": "synthetic_demo"
+        "node_id": "254113",
+        "source_id": "254113",
+        "inlet_uuid": "0dcc17d6-6647-56ff-9598-2feefc1a74ab",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
       },
-      "geometry": { "type": "Point", "coordinates": [-80.84585, 35.22962] }
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6541972113108,
+          35.81025751287218
+        ]
+      }
     },
     {
       "type": "Feature",
-      "id": 3,
+      "id": "254115",
       "properties": {
-        "node_id": "DP-003",
-        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f003",
-        "captured_at": "2026-07-31T08:19:00-04:00",
-        "status": "surveyed",
-        "source": "synthetic_demo"
+        "node_id": "254115",
+        "source_id": "254115",
+        "inlet_uuid": "c46962c0-2e72-5589-84cb-996ee2fb9938",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
       },
-      "geometry": { "type": "Point", "coordinates": [-80.84496, 35.22910] }
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65396239683554,
+          35.81030019722367
+        ]
+      }
     },
     {
       "type": "Feature",
-      "id": 4,
+      "id": "254112",
       "properties": {
-        "node_id": "DP-004",
-        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f004",
-        "captured_at": "2026-07-31T08:23:00-04:00",
-        "status": "surveyed",
-        "source": "synthetic_demo"
+        "node_id": "254112",
+        "source_id": "254112",
+        "inlet_uuid": "4fc197f2-4f9a-5874-9808-6506cdf69419",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
       },
-      "geometry": { "type": "Point", "coordinates": [-80.84405, 35.22862] }
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6545592792103,
+          35.81013454232771
+        ]
+      }
     },
     {
       "type": "Feature",
-      "id": 5,
+      "id": "254103",
       "properties": {
-        "node_id": "DP-005",
-        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f005",
-        "captured_at": "2026-07-31T08:28:00-04:00",
-        "status": "surveyed",
-        "source": "synthetic_demo"
+        "node_id": "254103",
+        "source_id": "254103",
+        "inlet_uuid": "99b74c6f-aa05-5de7-8d2e-452375bffdbf",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
       },
-      "geometry": { "type": "Point", "coordinates": [-80.84623, 35.22895] }
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65386219513195,
+          35.81042469329049
+        ]
+      }
     },
     {
       "type": "Feature",
-      "id": 6,
+      "id": "254111",
       "properties": {
-        "node_id": "DP-006",
-        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f006",
-        "captured_at": "2026-07-31T08:32:00-04:00",
-        "status": "surveyed",
-        "source": "synthetic_demo"
+        "node_id": "254111",
+        "source_id": "254111",
+        "inlet_uuid": "f4ef561c-9d1e-5474-8b7a-dff377d918d6",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
       },
-      "geometry": { "type": "Point", "coordinates": [-80.84528, 35.22843] }
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65490177741023,
+          35.810137959792165
+        ]
+      }
     },
     {
       "type": "Feature",
-      "id": 7,
+      "id": "254102",
       "properties": {
-        "node_id": "DP-007",
-        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f007",
-        "captured_at": "2026-07-31T08:38:00-04:00",
-        "status": "surveyed",
-        "source": "synthetic_demo"
+        "node_id": "254102",
+        "source_id": "254102",
+        "inlet_uuid": "8283172d-977b-5e6f-b5ca-f03e5c857243",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
       },
-      "geometry": { "type": "Point", "coordinates": [-80.84438, 35.22791] }
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65393893938035,
+          35.810464590928156
+        ]
+      }
     },
     {
       "type": "Feature",
-      "id": 8,
+      "id": "254100",
       "properties": {
-        "node_id": "DP-008",
-        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f008",
-        "captured_at": "2026-07-31T08:44:00-04:00",
-        "status": "surveyed",
-        "source": "synthetic_demo"
+        "node_id": "254100",
+        "source_id": "254100",
+        "inlet_uuid": "fcebcf86-efb2-5510-ba44-8b4e7defdd53",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
       },
-      "geometry": { "type": "Point", "coordinates": [-80.84346, 35.22742] }
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65354181302551,
+          35.81085033666876
+        ]
+      }
     },
     {
       "type": "Feature",
-      "id": 9,
+      "id": "254110",
       "properties": {
-        "node_id": "DP-009",
-        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f009",
-        "captured_at": "2026-07-31T08:49:00-04:00",
-        "status": "surveyed",
-        "source": "synthetic_demo"
+        "node_id": "254110",
+        "source_id": "254110",
+        "inlet_uuid": "c7a50a6c-737d-514e-a5d6-85d766ef9b34",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
       },
-      "geometry": { "type": "Point", "coordinates": [-80.84573, 35.22774] }
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6550765233094,
+          35.81014171734221
+        ]
+      }
     },
     {
       "type": "Feature",
-      "id": 10,
+      "id": "254101",
       "properties": {
-        "node_id": "DP-010",
-        "inlet_uuid": "a3e02135-2a60-4f7b-8c07-7d4f3be9f010",
-        "captured_at": "2026-07-31T08:54:00-04:00",
-        "status": "surveyed",
-        "source": "synthetic_demo"
+        "node_id": "254101",
+        "source_id": "254101",
+        "inlet_uuid": "d0bb5d67-3553-5eea-85e9-7d3986c56663",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
       },
-      "geometry": { "type": "Point", "coordinates": [-80.84482, 35.22722] }
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65362081723974,
+          35.810886585991575
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254098",
+      "properties": {
+        "node_id": "254098",
+        "source_id": "254098",
+        "inlet_uuid": "82573045-6475-5046-b587-90f6164bc719",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65322816987494,
+          35.811273125758376
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254107",
+      "properties": {
+        "node_id": "254107",
+        "source_id": "254107",
+        "inlet_uuid": "a1966f78-79ef-573d-aa1b-bb9eb1b98cb3",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65507710540874,
+          35.81024002004114
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254109",
+      "properties": {
+        "node_id": "254109",
+        "source_id": "254109",
+        "inlet_uuid": "64b7d594-e055-5a5c-8859-c7667ed2e703",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65536744682251,
+          35.81014458011223
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254099",
+      "properties": {
+        "node_id": "254099",
+        "source_id": "254099",
+        "inlet_uuid": "9c5efece-a2c1-52fd-866d-4783d1bff33d",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65331555925538,
+          35.811297130094246
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254097",
+      "properties": {
+        "node_id": "254097",
+        "source_id": "254097",
+        "inlet_uuid": "ed4f4ad9-168a-5bdd-9665-fb5295319c9a",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65318712106458,
+          35.81155947726703
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254108",
+      "properties": {
+        "node_id": "254108",
+        "source_id": "254108",
+        "inlet_uuid": "3082eeb3-ca00-5d4c-ac66-0b2738521ad7",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65532246120361,
+          35.81024275394157
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254084",
+      "properties": {
+        "node_id": "254084",
+        "source_id": "254084",
+        "inlet_uuid": "e498af0c-e1c4-550d-b58f-5257ca1d5b06",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65318375006035,
+          35.81184130217408
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254083",
+      "properties": {
+        "node_id": "254083",
+        "source_id": "254083",
+        "inlet_uuid": "b0318fb1-13a6-5b16-a398-8edfaafee5f2",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6532805280129,
+          35.811843404553514
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254082",
+      "properties": {
+        "node_id": "254082",
+        "source_id": "254082",
+        "inlet_uuid": "1e29befc-5e95-5ef3-8629-b394bff226c5",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65317987929095,
+          35.811996354022554
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254085",
+      "properties": {
+        "node_id": "254085",
+        "source_id": "254085",
+        "inlet_uuid": "03ad2033-6bc7-5863-a505-d07268d0043b",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65338208124469,
+          35.81192775145436
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254086",
+      "properties": {
+        "node_id": "254086",
+        "source_id": "254086",
+        "inlet_uuid": "e86e9bdc-45a2-5e54-809f-c22346fae073",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6536280618158,
+          35.812011336181875
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254080",
+      "properties": {
+        "node_id": "254080",
+        "source_id": "254080",
+        "inlet_uuid": "44175cb9-defa-5f1c-89c5-6e563b739e4c",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65323134171462,
+          35.81223159866147
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254081",
+      "properties": {
+        "node_id": "254081",
+        "source_id": "254081",
+        "inlet_uuid": "0939b500-f029-5d60-928d-df29cc1a2337",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65363356122025,
+          35.811900828648476
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254088",
+      "properties": {
+        "node_id": "254088",
+        "source_id": "254088",
+        "inlet_uuid": "1b21ad60-6066-5364-b124-4036978af41d",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65412555974903,
+          35.81201470409204
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254089",
+      "properties": {
+        "node_id": "254089",
+        "source_id": "254089",
+        "inlet_uuid": "1c8129b5-4426-5131-b056-7312d3fe9e76",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65363429140034,
+          35.811777641931776
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254087",
+      "properties": {
+        "node_id": "254087",
+        "source_id": "254087",
+        "inlet_uuid": "d81ef086-1625-5eb6-9e8b-a99a004f2614",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6541268429299,
+          35.811939526098236
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254024",
+      "properties": {
+        "node_id": "254024",
+        "source_id": "254024",
+        "inlet_uuid": "897a615e-5c4b-5af3-b623-c976c90193cd",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65466539047922,
+          35.81202173309646
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254090",
+      "properties": {
+        "node_id": "254090",
+        "source_id": "254090",
+        "inlet_uuid": "b49eaa22-5936-55b3-9b22-576988f386e6",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6536369554275,
+          35.81157292191111
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254023",
+      "properties": {
+        "node_id": "254023",
+        "source_id": "254023",
+        "inlet_uuid": "594f41c5-ecc6-56c3-b160-98b33e91b5f4",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6546602078021,
+          35.81194544345222
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "253993",
+      "properties": {
+        "node_id": "253993",
+        "source_id": "253993",
+        "inlet_uuid": "ce4f1caf-1dec-5f5c-bd03-8578b9a58da9",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65477567766882,
+          35.81209640876621
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254091",
+      "properties": {
+        "node_id": "254091",
+        "source_id": "254091",
+        "inlet_uuid": "82ddbc47-913b-59b6-ab3c-e728fd98aa73",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65365388444114,
+          35.81143167690663
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254025",
+      "properties": {
+        "node_id": "254025",
+        "source_id": "254025",
+        "inlet_uuid": "5df24f4a-56a0-5f4f-9e67-7570bbbfe206",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65444071182304,
+          35.81190877942588
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "253994",
+      "properties": {
+        "node_id": "253994",
+        "source_id": "253994",
+        "inlet_uuid": "35ef315f-12c4-51be-9302-36a7df013d57",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65477905048051,
+          35.811856147333216
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "253992",
+      "properties": {
+        "node_id": "253992",
+        "source_id": "253992",
+        "inlet_uuid": "baf9511e-2971-548d-b405-061a8e81069d",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65489460707443,
+          35.812096745592655
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254092",
+      "properties": {
+        "node_id": "254092",
+        "source_id": "254092",
+        "inlet_uuid": "1928213d-a4b8-5453-9578-6d54313c99ab",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65371484049976,
+          35.81131151855681
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254026",
+      "properties": {
+        "node_id": "254026",
+        "source_id": "254026",
+        "inlet_uuid": "baec8065-ff52-520c-b235-3f060360e4fa",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6544417161216,
+          35.81178408284017
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "253995",
+      "properties": {
+        "node_id": "253995",
+        "source_id": "253995",
+        "inlet_uuid": "dfb2c0c6-edf8-571b-9f49-9b321e3e8b91",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6548971890403,
+          35.81185839365928
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254093",
+      "properties": {
+        "node_id": "254093",
+        "source_id": "254093",
+        "inlet_uuid": "b76d34e5-0125-5aa4-abb6-f6b8d50043d5",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65385320028649,
+          35.81112850247799
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254027",
+      "properties": {
+        "node_id": "254027",
+        "source_id": "254027",
+        "inlet_uuid": "a4cf3310-d241-5968-b2b9-82dfcc8a4bae",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6544458792991,
+          35.81157557512274
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "253996",
+      "properties": {
+        "node_id": "253996",
+        "source_id": "253996",
+        "inlet_uuid": "4319467e-4a12-5d3f-b18c-c0067c8e7850",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65490693105072,
+          35.81140910703144
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254094",
+      "properties": {
+        "node_id": "254094",
+        "source_id": "254094",
+        "inlet_uuid": "0f109f50-b239-504e-8b76-fc4e4c758183",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6539656741433,
+          35.81100410708871
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254028",
+      "properties": {
+        "node_id": "254028",
+        "source_id": "254028",
+        "inlet_uuid": "01c859e9-8069-5ff5-b062-c455e65fa3a0",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65444916484412,
+          35.811367092843675
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "253997",
+      "properties": {
+        "node_id": "253997",
+        "source_id": "253997",
+        "inlet_uuid": "674dbdb7-7b25-5b99-9211-903e3e9e45d0",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65502077196881,
+          35.811318291263106
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254096",
+      "properties": {
+        "node_id": "254096",
+        "source_id": "254096",
+        "inlet_uuid": "c3ee3707-93f7-5364-9345-58953c40299a",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65420276884052,
+          35.81071436382074
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254095",
+      "properties": {
+        "node_id": "254095",
+        "source_id": "254095",
+        "inlet_uuid": "cd09a3d8-8361-56be-b379-2694ed6a5a07",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65422045493055,
+          35.811028487696106
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254029",
+      "properties": {
+        "node_id": "254029",
+        "source_id": "254029",
+        "inlet_uuid": "e4c7d1d6-4f32-5126-b436-c52fc2174f91",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65445153379648,
+          35.8112073722374
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "253998",
+      "properties": {
+        "node_id": "253998",
+        "source_id": "253998",
+        "inlet_uuid": "243515c4-3802-58bb-b3d2-1779880d0d84",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65502352408383,
+          35.81122333840266
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254030",
+      "properties": {
+        "node_id": "254030",
+        "source_id": "254030",
+        "inlet_uuid": "91e0c8ea-63f9-59aa-8b08-c8ecd78959c2",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65445534617028,
+          35.810970373934005
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254022",
+      "properties": {
+        "node_id": "254022",
+        "source_id": "254022",
+        "inlet_uuid": "987c9745-47ad-5fd0-aacf-2736cf2949c1",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.65526620065845,
+          35.81122397371478
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "254076",
+      "properties": {
+        "node_id": "254076",
+        "source_id": "254076",
+        "inlet_uuid": "a6d685b6-0c5a-5f4b-975c-5345a7ed5798",
+        "status": "sample",
+        "notes": "",
+        "captured_at": null,
+        "source": "Raleigh.gpkg / Inlets"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -78.6544576636724,
+          35.810748370571226
+        ]
+      }
     }
   ]
 }

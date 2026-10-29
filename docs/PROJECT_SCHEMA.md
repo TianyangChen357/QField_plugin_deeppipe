@@ -6,7 +6,7 @@ Any QField project with an inlet point layer and a stable unique string/integer 
 
 Use a text UUID, such as `inlet_uuid`, with default `uuid('WithoutBraces')`, non-null/unique constraints, and **apply default on update** disabled. Keep it unchanged after creation. Provider FIDs can change across synchronization and are not operational node IDs. A separate `node_id` can remain the readable display value.
 
-The minimum live input is four selected points with a valid CRS and valid WGS84 transformation. Duplicate IDs block submission; duplicate coordinates produce a warning. Locally committed edits can be selected before synchronization. Production layers should use GeoPackage or an intentionally configured online provider; the demo uses GeoJSON for portability.
+The minimum live input is four selected points with a valid CRS and valid WGS84 transformation. Duplicate IDs block submission; duplicate coordinates produce a warning. Locally committed edits can be selected before synchronization. The 50-point template uses an editable GeoPackage with relative project paths. Its GeoJSON fixture records the starting data for validation and is not the editable map layer.
 
 Recommended additional inlet fields include `captured_at`, `captured_by`, `survey_status`, `elevation`, and `source`.
 

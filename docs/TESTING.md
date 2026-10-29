@@ -9,6 +9,7 @@ node tests/test_logic.mjs
 node tests/validate_source.mjs
 node tests/test_api_contract.mjs
 ./scripts/test_qml.sh
+QT_QPA_PLATFORM=offscreen python3 tests/test_project_template.py
 ./build.sh
 ```
 
@@ -28,15 +29,25 @@ The separate opt-in test creates an initial prediction and two refinements, then
 DEEPPIPE_RUN_LIVE_PREDICTION=1 node tests/test_live_progressive.mjs
 ```
 
-It uses the ten synthetic demo points by default. `DEEPPIPE_API_BASE_URL`, `DEEPPIPE_LIVE_FIXTURE` (WGS84 GeoJSON), and `DEEPPIPE_LIVE_ID_FIELD` can select another controlled fixture and service. It verifies confirmation of a pair outside the original candidates, exclusion of an existing pipe, changes to unknown neural scores, and restoration of the original candidates/scores after an empty observation snapshot.
+It uses the 50-point Raleigh template fixture by default. `DEEPPIPE_API_BASE_URL`, `DEEPPIPE_LIVE_FIXTURE` (WGS84 GeoJSON), and `DEEPPIPE_LIVE_ID_FIELD` can select another controlled fixture and service. It verifies confirmation of a pair outside the original candidates, exclusion of an existing pipe, changes to unknown neural scores, and restoration of the original candidates/scores after an empty observation snapshot.
 
 On 2026-10-29, the release checks passed with 44 native Qt cases (including test setup/teardown), pure-JS/source checks, and the live API contract. The opt-in workflow passed against the current server using the Portal's 50-node Raleigh fixture: 225 initial candidates, an added outside pair, an excluded existing pipe, 191 changed unknown scores, and restoration of the unconditioned baseline after clearing. All three test jobs were deleted. This checks constraint behavior and workflow integration; it does not measure prediction accuracy or replace a physical-device test.
 
 Build outputs are `dist/deeppipe-mobile-v0.7.0.zip` and byte-identical `dist/deeppipe-mobile-latest.zip`. The optional `DeepPipe_QField_API_Test_v0.7.0.zip` is a debugging bundle, not an app-wide plugin installer.
 
+## Editable project package
+
+`python3 scripts/package_project_template.py` builds the standalone project ZIP and a byte-identical `latest.zip`. `./build.sh` also packages it. The ZIP contains exactly one `.qgs` with relative paths, its editable GeoPackage, the initial 50-point fixture, and instructions. The plugin installer is a different ZIP.
+
+`QT_QPA_PLATFORM=offscreen python3 tests/test_project_template.py` loads a disposable copy with native PyQGIS. It checks the 50 starting points, provider/CRS, stable IDs and defaults, then edits, adds, deletes, saves, and reopens data. It must leave the committed template unchanged.
+
+On 2026-10-29, all eight native QGIS 3.40.6 checks passed, including comparison against the Portal's exact 50 points. An extracted release ZIP was independently opened, given a new point with an automatic UUID, saved, and reopened with 51 points. The 50-point UUID fixture also passed the opt-in live prediction/refinement/clear workflow against the current server; its three test jobs were deleted.
+
+On a real phone, test the Portal's project QR separately from the plugin QR. QField's **Open local files → + → Import URL → QR icon** imports the project into writable local storage; tap the imported project if it is not opened automatically. A camera/deep-link launch asks for import confirmation and can open the sole project automatically. Test editing a point and adding two points, save, restart, and run the plugin with the changed selection. Confirm another import does not overwrite field work without user consent.
+
 ## Physical-device setup required
 
-Use QField 4.2.10 or the deployment's supported current QField version on an Android phone and an iPhone/iPad. Record exact versions. Test portrait/landscape, Wi-Fi/cellular, loss of connectivity, and background/lock-screen resume. Start with the ten synthetic demo inlets; use non-sensitive controlled inputs for live server smoke tests.
+Use QField 4.2.10 or the deployment's supported current QField version on an Android phone and an iPhone/iPad. Record exact versions. Test portrait/landscape, Wi-Fi/cellular, loss of connectivity, and background/lock-screen resume. Start with the 50 Raleigh template inlets; use non-sensitive controlled inputs for live server smoke tests.
 
 The release currently targets:
 
@@ -85,7 +96,7 @@ Test both EPSG:4326 and a projected inlet layer. Provider FIDs must never replac
 ## Progressive live prediction
 
 1. Check both services in Configuration.
-2. Select at least four synthetic inlets and submit once.
+2. Select at least four template inlets and submit once.
 3. Record task ID, endpoint, elapsed time, and model/workflow metadata from the server output.
 
 | Test | Expected |

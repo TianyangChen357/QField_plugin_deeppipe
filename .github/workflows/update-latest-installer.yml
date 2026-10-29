@@ -31,6 +31,25 @@ jobs:
           test -n "$VERSION"
           test "$(unzip -p "dist/deeppipe-mobile-v${VERSION}.zip" metadata.txt | awk -F= '$1 == "version" { print $2 }')" = "$VERSION"
           cmp "dist/deeppipe-mobile-v${VERSION}.zip" dist/deeppipe-mobile-latest.zip
+          TEMPLATE_VERSION="$(python3 -c 'import json; print(json.load(open("project-template/template.json"))["template_version"])')"
+          cmp "dist/deeppipe-qfield-template-v${TEMPLATE_VERSION}.zip" dist/deeppipe-qfield-template-latest.zip
+          unzip -tq dist/deeppipe-qfield-template-latest.zip
+
+  project-template:
+    runs-on: ubuntu-latest
+    container: debian:trixie-slim
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install native QGIS test runtime
+        run: |
+          apt-get update
+          apt-get install -y python3-qgis
+
+      - name: Test portable project and editable data
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python3 tests/test_project_template.py
 
   native-qml:
     runs-on: ubuntu-latest

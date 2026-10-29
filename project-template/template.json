@@ -1,0 +1,22 @@
+{
+  "template_version": "1.0.0",
+  "display_name": "DeepPipe Raleigh 50-Node Template",
+  "project_file": "DeepPipe_Mobile_Demo.qgs",
+  "node_count": 50,
+  "fixture": "data/inlets.geojson",
+  "editable_datasource": "data/inlets.gpkg",
+  "node_id_field": "inlet_uuid",
+  "display_id_field": "node_id",
+  "source_id_field": "source_id",
+  "source": "Raleigh.gpkg / Inlets",
+  "source_description": "The same 50 inlet locations in the Portal Raleigh sample, with original IDs preserved as source_id. This is point inventory data, not verified pipe connectivity.",
+  "fixture_crs": "EPSG:4326",
+  "project_crs": "EPSG:3857",
+  "prediction_defaults": {
+    "neighbors_per_sector": 2,
+    "knn_k": 12,
+    "knn_max_distance_ft": 250,
+    "rounds": 3,
+    "use_msf": true
+  }
+}
