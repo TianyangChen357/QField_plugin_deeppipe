@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-const baseUrl = String(process.env.DEEPPIPE_API_BASE_URL || "https://lab.yyworkshop.com/predapi").replace(/\/+$/, "");
+const baseUrl = String(process.env.DEEPPIPE_API_BASE_URL || "https://eegs4y29nw3lws.charlotte.edu:8080/deeppipe/predapi").replace(/\/+$/, "");
 const passBaseUrl = String(process.env.DEEPPIPE_PASS_API_BASE_URL || "https://lab.yyworkshop.com").replace(/\/+$/, "");
 
 async function request(path, options = {}) {
@@ -33,6 +33,8 @@ assert.equal(openApiResponse.status, 200);
 const openApi = await openApiResponse.json();
 assert.equal(openApi.info.title, "DeepPipe Prediction API");
 assert.ok(openApi.paths["/api/pred/pred_deep"]?.post);
+assert.ok(openApi.paths["/api/pred/jobs/{task_id}/refine"]?.post);
+assert.ok(openApi.paths["/api/pred/jobs/{task_id}/progress"]?.get);
 assert.ok(openApi.paths["/api/jobs/jobs/{task_id}/status"]?.get);
 assert.ok(openApi.paths["/api/jobs/jobs/{task_id}/files"]?.get);
 assert.ok(openApi.paths["/api/jobs/jobs/{task_id}/geojson/{filename}"]?.get);
@@ -44,6 +46,15 @@ assert.equal(submitOperation.requestBody.content["multipart/form-data"], undefin
 const fullRequest = openApi.components.schemas.FullPredRequest;
 assert.ok(fullRequest.required.includes("nodes"));
 assert.ok(fullRequest.required.includes("node_id_field"));
+assert.ok(fullRequest.properties.workflow_type);
+assert.ok(fullRequest.properties.progressive_config);
+const progressiveConfig = openApi.components.schemas.ProgressivePredictionConfig.properties;
+assert.equal(progressiveConfig.neighbors_per_sector.default, 2);
+assert.equal(progressiveConfig.knn_k.default, 12);
+assert.equal(progressiveConfig.knn_max_distance_ft.default, 250);
+assert.equal(progressiveConfig.rounds.default, 3);
+assert.equal(progressiveConfig.use_msf.default, true);
+assert.ok(openApi.components.schemas.RefinePredRequest.required.includes("observations"));
 
 // This malformed request must stop at FastAPI validation and cannot enqueue a job.
 const validationResponse = await request("/api/pred/pred_deep", {

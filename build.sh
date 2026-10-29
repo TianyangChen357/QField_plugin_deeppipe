@@ -30,9 +30,8 @@ cp -R "$SCRIPT_DIR/docs" "$STAGING_DIR/docs"
 cp -R "$SCRIPT_DIR/project-template" "$STAGING_DIR/project-template"
 cp -R "$PLUGIN_SOURCE" "$STAGING_DIR/plugin/deeppipe-mobile"
 cp "$PLUGIN_ZIP" "$STAGING_DIR/plugin-install/deeppipe-mobile-v${VERSION}.zip"
-cp "$SCRIPT_DIR/tests/test_logic.mjs" "$STAGING_DIR/tests/test_logic.mjs"
-cp "$SCRIPT_DIR/tests/validate_source.mjs" "$STAGING_DIR/tests/validate_source.mjs"
-cp "$SCRIPT_DIR/tests/test_api_contract.mjs" "$STAGING_DIR/tests/test_api_contract.mjs"
+cp -R "$SCRIPT_DIR/tests/." "$STAGING_DIR/tests/"
+cp -R "$SCRIPT_DIR/scripts" "$STAGING_DIR/scripts"
 
 (
   cd "$STAGING_DIR"

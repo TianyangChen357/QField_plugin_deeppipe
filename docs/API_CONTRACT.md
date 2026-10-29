@@ -1,33 +1,12 @@
-# DeepPipe Mobile API contract — 0.6.0
+# DeepPipe Mobile API contract — v0.7.0
 
-Prediction was checked against `https://lab.yyworkshop.com/predapi/openapi.json`
-and successful job outputs on 2026-08-06. PyPASS point, catalog, and in-bounds
-PNG tile responses were checked live on 2026-08-10.
+New predictions use the Progressive service at `https://eegs4y29nw3lws.charlotte.edu:8080/deeppipe/predapi`. This current campus-server origin includes `/deeppipe`. The older `https://lab.yyworkshop.com/predapi` serves the earlier backend; sending new fields there does not establish a Progressive run. Campus-host network access and a trusted certificate path are required. Its present self-signed certificate must be trusted by the device, or the service must be exposed through a proxy with a trusted certificate. PyPASS remains at `https://lab.yyworkshop.com`.
 
-## Health
+## Health and submission
 
-```http
-GET https://lab.yyworkshop.com/predapi/health
-```
+`GET /health` expects `{"status":"ok"}`; extra fields such as `device` may be present. Health proves HTTP liveness, not complete queue/model/factor readiness.
 
-Observed response:
-
-```json
-{"status":"ok","device":"cpu"}
-```
-
-This is a liveness check, not a complete worker/model/factor readiness check.
-
-## Submit selected inlet points
-
-`node_id_field` may name a string UUID field. For multi-user/offline QField collection, the plugin recommends stable UUID strings generated once at feature creation; it does not regenerate IDs during submission.
-
-```http
-POST https://lab.yyworkshop.com/predapi/api/pred/pred_deep
-Content-Type: application/json
-```
-
-The QField plugin submits selected features directly; it does not call the separate multipart upload endpoint.
+The plugin submits selected inlet features directly as JSON to `POST /api/pred/pred_deep`. There is no mobile multipart upload step. At least four valid points are required, with unique stable string/integer IDs and an explicit WGS84 CRS. UUIDs are preserved from the project; they are never regenerated during submission.
 
 ```json
 {
@@ -35,157 +14,104 @@ The QField plugin submits selected features directly; it does not call the separ
     "type": "FeatureCollection",
     "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
     "features": [
-      {
-        "type": "Feature",
-        "properties": {"node_id": "I-001", "source_fid": 1},
-        "geometry": {"type": "Point", "coordinates": [-80.8431, 35.2271]}
-      }
+      {"type":"Feature","properties":{"node_id":"A","source_fid":1},"geometry":{"type":"Point","coordinates":[-80.8431,35.2271]}},
+      {"type":"Feature","properties":{"node_id":"B","source_fid":2},"geometry":{"type":"Point","coordinates":[-80.8428,35.2272]}},
+      {"type":"Feature","properties":{"node_id":"C","source_fid":3},"geometry":{"type":"Point","coordinates":[-80.8425,35.2275]}},
+      {"type":"Feature","properties":{"node_id":"D","source_fid":4},"geometry":{"type":"Point","coordinates":[-80.8429,35.2276]}}
     ]
   },
-  "model_type": "gnn",
   "node_id_field": "node_id",
-  "max_search_radius": 500,
-  "road_half_width_ft": 100,
-  "k_neighbors": 12,
-  "classification_threshold": 0.85,
-  "threshold_tolerance": 0.3,
-  "with_mst": true,
-  "prob_weight": 0.5,
-  "elev_weight": 0.0,
-  "length_weight": 0.5
+  "workflow_type": "progressive",
+  "model_type": "progressive_gnn",
+  "progressive_config": {
+    "neighbors_per_sector": 2,
+    "knn_k": 12,
+    "knn_max_distance_ft": 250,
+    "rounds": 3,
+    "use_msf": true
+  }
 }
 ```
 
-The 12-neighbor and 0.50/0.00/0.50 weights are the explicit DeepPipe Mobile preset. The mobile UI exposes only **GNN probability** and **Length**; `elev_weight` is fixed at `0.0` and remains in the request solely for API compatibility. The deployed OpenAPI defaults are 3 and 0.15/0.00/0.85, but the service accepts the plugin preset because weights sum to 1.0.
+Candidate generation combines Delaunay, KNN, and four direction sectors. The mobile controls allow 1–8 neighbors per direction, KNN 1–50, KNN distance 1–5000 ft, and 1–10 rounds. Distance is in US survey feet and limits the KNN candidates. The MSF switch controls maximum spanning forest post-processing. The request excludes legacy threshold/tolerance, MST, and probability/elevation/length weight fields.
 
-The API returns HTTP 200 for a queued task:
+An accepted response identifies the queued task, for example:
 
 ```json
 {"job_id":"abc123def456","task_id":"abc123def456","status":"queued"}
 ```
 
-The plugin persists `task_id` immediately. It does not automatically retry an ambiguous POST timeout.
+The accepted ID is persisted immediately. Neither initial prediction nor refinement POST is automatically retried after an ambiguous timeout.
 
 ## Poll and retrieve
 
-The double `jobs/jobs` path is intentional.
+These paths are relative to the Prediction origin. The double `jobs/jobs` segment is intentional.
 
 ```http
 GET /api/jobs/jobs/{task_id}/status
 GET /api/jobs/jobs/{task_id}/files
+GET /api/jobs/jobs/{task_id}/geojson/Candidates.geojson
 GET /api/jobs/jobs/{task_id}/geojson/Pipes.geojson
 GET /api/jobs/jobs/{task_id}/download
 POST /api/jobs/jobs/{task_id}/cancel
 ```
 
-Expected status shape:
+Status may contain `status`, Celery `state`, and `info.step`. The client normalizes queued/running/succeeded/failed/cancelled states, backs off transient GET failures, and resumes an accepted task when the same project is reopened. It never queries a global jobs list. Each saved/pending task retains its original API base URL; polling, downloads, cancellation, and refinement remain pinned to that backend rather than adopting a later default.
 
-```json
-{
-  "job_id": "abc123def456",
-  "task_id": "abc123def456",
-  "status": "running",
-  "state": "STARTED",
-  "info": {"step": "Extracting factors"}
-}
-```
+After success, the client checks `/files`, retrieves full `Candidates.geojson`, and loads the final pipe-named GeoJSON. It does not substitute `Structures.geojson` for missing pipes. Result geometry is WGS84. The job ZIP also provides server files such as structures, candidates, pipes, and logs; metadata/summary files may also be present.
 
-Terminal statuses handled by the client are `succeeded`, `failed`, and `cancelled`. On success, `/files` must identify a pipe-named GeoJSON; the client will not fall back to `Structures.geojson`. The downloaded pipe FeatureCollection is returned in EPSG:4326 and is loaded with an explicit WGS84 CRS. The plugin exposes the job `/download` URL after completion. The live ZIP inspected on 2026-08-06 contained `Structures.geojson`, `Pipes.geojson`, and `log.txt`.
+`Pipes.geojson` contains the final selected network. Final `class=1` is authoritative, including confirmed connections whose raw model score is below 0.5. Unselected `class=0` candidates stay in the candidate review list and are not yellow alternatives on the final map. Current pipe export adds `deeppipe_outcome=predicted` and `deeppipe_color=#005035`.
 
-The backend currently writes only GNN-positive pipes that meet
-`classification_threshold`. Within that already filtered set, `model_class=1`
-records can contain either final `class=1` or `class=0` after MST
-post-processing. The mobile client therefore defines:
+`model_prob`/`neural_probability` retain the raw neural score. `prob`, `effective_prob`, and `effective_probability` describe the effective selection score where provided; connected/disconnected observations override that effective value to 1/0. An unscored manual pair remains unscored in the model column, rather than receiving a fabricated neural score.
 
-- `Predicted`: `model_class=1`, probability at or above the submitted threshold, and final `class=1`;
-- `Potential`: `model_class=1`, probability at or above the submitted threshold, and final `class=0`.
-- Features with a missing/unparseable probability, a probability below the
-  submitted threshold, or `model_class!=1` are excluded from both display
-  classes.
-
-Below-threshold or model-negative records are excluded rather than labeled
-Potential. `is_connect` is not used as the post-processing result because live
-outputs may carry `is_connect=-1`. The stable export fields are
-`deeppipe_outcome` and `deeppipe_color` (`#005035` / `#F4C430`).
-
-## Error shapes
-
-FastAPI schema validation (422):
-
-```json
-{"detail":[{"loc":["body","nodes"],"msg":"Field required","type":"missing"}]}
-```
-
-Business validation (400):
-
-```json
-{
-  "detail": {
-    "error_field": "max_search_radius",
-    "message": "must be between 100 and 1500.",
-    "suggestion": ""
-  }
-}
-```
-
-The client also handles string `detail`, queue-unavailable 503, malformed/empty responses, network failure, and timeout.
-
-## Security and correctness blockers before production
-
-1. The OpenAPI document declares no authentication/security scheme, and job resources are reachable without task ownership. The plugin never lists global jobs and accesses only the task ID it received, but server-side authentication and authorization are still required.
-2. The current backend implementation must project coordinates before applying `max_search_radius` in feet. EPSG:4326 degree differences must not be compared directly to a feet threshold.
-3. Add idempotency support (`Idempotency-Key` or `client_request_id`) before enabling safe automatic POST retries.
-4. Replace the basic health check with readiness that verifies the queue, worker, models, and county factor coverage.
-5. Define a stable response/error schema in OpenAPI instead of `{}` for successful job operations.
-
-## Live PyPASS point assessment
-
-PyPASS uses a separate origin from Prediction. The default is
-`https://lab.yyworkshop.com`.
+## Refine from observations
 
 ```http
-POST /api/pypass/service-life
+POST /api/pred/jobs/{parent_task_id}/refine
 Content-Type: application/json
 ```
 
 ```json
 {
-  "latitude": 34.2104,
-  "longitude": -77.8868,
-  "nominal_diameter_cast_iron": 16,
-  "location_id": "qfield-demo"
+  "observations": [
+    {"node_u":"A","node_v":"B","state":"connected"},
+    {"node_u":"B","node_v":"C","state":"disconnected"}
+  ]
 }
 ```
 
-The response contains `location`, nullable `soil` values, fixed-material
-estimates, six gauge rows, and optional `warnings`. Null pH, resistivity,
-chloride, or material estimates mean unavailable coverage and must remain
-unavailable in the UI; they must never be converted to zero.
+This is a complete snapshot. **Unknown** removes the pair from the list; `{"observations":[]}` clears all earlier observations. Pairs are undirected, canonicalized by their original stable IDs, and deduplicated. Empty/unsupported IDs, self-pairs, unknown endpoints, and contradictory duplicates are invalid. Numeric `7` and text `"7"` address the same original ID, while leading zeroes remain significant.
 
-PyPASS provides service-life comparison only. The plugin must not label a
-material as recommended until engineering, cost, and selection criteria are
-defined and implemented.
+The server creates a child task using its parent request/input/settings. The plugin also retains an immutable original WGS84 point snapshot for observation geometry and two-inlet map picking. A manually confirmed pair may be outside the original candidate set; the server incorporates the requested pair during refinement. An update does not adopt newly selected points, edited node IDs/geometry, or subsequently changed configuration controls. Those require a new prediction.
 
-## Raster catalogs
+Connected pairs are hard positives and disconnected pairs hard negatives. Crossing/cycle or other incompatible constraints can produce a validation error; neither the client nor MSF guarantees a feasible connected graph for arbitrary observations. Failed/cancelled children preserve the parent result and current draft. On success, the child's result and applied observations become the saved state.
+
+Previous-version results without the required Progressive input snapshot are viewable/exportable. Observation refinement is disabled until a fresh Progressive prediction supplies that snapshot.
+
+## Errors
+
+FastAPI schema validation can return:
+
+```json
+{"detail":[{"loc":["body","nodes"],"msg":"Field required","type":"missing"}]}
+```
+
+Observation validation may return an object in `detail`, for example `{"field":"observations","message":"..."}`. The client also reads string `detail`, nested errors, HTTP errors, malformed responses, network failure, and timeout. Messages remain visible without discarding the editable observation snapshot.
+
+## PyPASS point and raster APIs
+
+The PyPASS behavior is unchanged. At `https://lab.yyworkshop.com`:
 
 ```http
+POST /api/pypass/service-life
 GET /api/pypass/variables
 GET /api/pypass/service-life-layer/options
 ```
 
-The plugin resolves root-relative `tile_url` templates against the PyPASS
-origin and loads them through QGIS's XYZ/WMS provider. The current public portal
-intercepts a literal terminal `.png` before it reaches FastAPI; v0.6.0 therefore
-uses the equivalent `%2Epng` transport path and escapes the percent sign once
-more inside the QGIS data-source URI. Live contract tests require an in-bounds
-soil tile and service-life tile to return HTTP 200 with `image/png`. Soil and service-life
-tile routes are used by the live frontend but are not yet documented in the
-current OpenAPI document, so the catalog response is preferred over a hard-coded
-template and the backend should add these routes to OpenAPI. Gauge values are
-validated against each catalog material's `gauge_sizes`; an unsupported value
-falls back to that material's advertised `default_gauge` and is reported in the
-plugin status.
+A point request includes latitude/longitude, `nominal_diameter_cast_iron:16`, and a location ID. Responses contain nullable soil values, fixed-material estimates, gauge rows, and warnings. Null coverage remains unavailable and is not converted to zero. The UI presents comparisons rather than a material recommendation.
 
-The mobile plugin does not expose a direct COG/GeoTIFF URL input. Its user-facing
-raster query uses the catalog's hosted service-life XYZ template and does not
-guess or construct raw object URLs.
+Raster templates are resolved against the PyPASS origin and loaded through QGIS's XYZ/WMS provider. The public proxy requires the terminal `.png` dot to be transported as `%2Epng`, then percent-escaped inside the QGIS URI. The live contract check verifies in-bounds soil and service-life PNG tiles. Gauge choices are checked against each material's advertised `gauge_sizes`; unsupported values use its `default_gauge` with a status message. Direct COG/GeoTIFF URL selection is not exposed.
+
+## Verification limits
+
+`tests/test_api_contract.mjs` checks live health/OpenAPI, the Progressive defaults and refinement route, a malformed prediction request that cannot enqueue a job, and PyPASS responses. It does not create a real prediction/refinement job. Native Qt tests cover UI bindings and mocked-host request lifecycle; physical QField testing and a controlled synthetic end-to-end server run remain separate checks.

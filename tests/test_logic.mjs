@@ -20,206 +20,174 @@ const context = vm.createContext({
 });
 vm.runInContext(source, context, { filename: logicPath });
 
+const plain = value => JSON.parse(JSON.stringify(value));
 const points = [
   { fid: 1, nodeId: "I-001", x: 0, y: 0 },
   { fid: 2, nodeId: "I-002", x: 10, y: 0 },
   { fid: 3, nodeId: "I-003", x: 10, y: 10 },
   { fid: 4, nodeId: "I-004", x: 30, y: 10 },
 ];
-
 const defaults = context.predictionDefaults();
-assert.equal(defaults.model_type, "gnn");
-assert.equal(defaults.k_neighbors, 12);
-assert.equal(defaults.classification_threshold, 0.85);
-
-const normalized = context.normalizePredictionConfig({
-  max_search_radius: 5000,
-  classification_threshold: 0.2,
-  prob_weight: 2,
-  elev_weight: 1,
-  length_weight: 1,
+assert.deepEqual(plain(defaults), {
+  workflow_type: "progressive", model_type: "progressive_gnn", classification_threshold: 0.5,
+  progressive_config: {neighbors_per_sector: 2, knn_k: 12, knn_max_distance_ft: 250, rounds: 3, use_msf: true},
 });
-assert.equal(normalized.max_search_radius, 1500);
-assert.equal(normalized.classification_threshold, 0.51);
-assert.ok(Math.abs(normalized.prob_weight + normalized.elev_weight + normalized.length_weight - 1) < 1e-9);
-
+const fresh = context.predictionDefaults();
+fresh.progressive_config.rounds = 9;
+assert.equal(defaults.progressive_config.rounds, 3, "default settings must not share nested objects");
+const normalized = context.normalizePredictionConfig({progressive_config: {
+  neighbors_per_sector: 20, knn_k: 70, knn_max_distance_ft: 10000, rounds: 0, use_msf: false,
+}});
+assert.deepEqual(plain(normalized.progressive_config), {
+  neighbors_per_sector: 8, knn_k: 50, knn_max_distance_ft: 5000, rounds: 1, use_msf: false,
+});
+const custom = {progressive_config: {neighbors_per_sector: 4, knn_k: 8, knn_max_distance_ft: 400, rounds: 6, use_msf: false}};
+const legacy = {model_type: "mlp", max_search_radius: 1500, k_neighbors: 8, classification_threshold: 0.98, with_mst: false};
+assert.deepEqual(plain(context.normalizePredictionConfig(legacy)), plain(defaults), "old settings must migrate to the new defaults");
+assert.deepEqual(plain(context.normalizePredictionConfig(custom).progressive_config), custom.progressive_config);
+custom.progressive_config.rounds = 4;
+assert.equal(normalized.progressive_config.rounds, 1);
 assert.equal(context.projectKey("/projects/a.qgs", "Same title"), "path:/projects/a.qgs");
 assert.equal(context.projectKey("", "Same title"), "title:Same title");
 const mappingJson = context.updateProjectMapping("{}", "/projects/a.qgs", "Same title", {
-  layer_id: "layer-a",
-  layer_name: "Inlets",
-  node_id_field: "inlet_uuid",
-  confirmed_at: "2026-07-31T18:00:00.000Z",
+  layer_id: "layer-a", layer_name: "Inlets", node_id_field: "inlet_uuid", confirmed_at: "2026-07-31T18:00:00.000Z",
 });
-assert.equal(
-  context.projectMapping(mappingJson, "/projects/a.qgs", "Same title").node_id_field,
-  "inlet_uuid",
-);
-assert.equal(
-  context.projectMapping(mappingJson, "/projects/moved.qgs", "Same title"),
-  null,
-);
-assert.equal(context.projectMapping(mappingJson, "/projects/b.qgs", "Same title"), null);
+assert.equal(context.projectMapping(mappingJson, "/projects/a.qgs", "Same title").node_id_field, "inlet_uuid");
+assert.equal(context.projectMapping(mappingJson, "/projects/moved.qgs", "Same title"), null);
 assert.equal(context.projectMapping("not json", "/projects/a.qgs", "Same title"), null);
-
-let serviceSettingsJson = context.updateProjectServiceSettings(
-  "{}",
-  "/projects/a.qgs",
-  "Same title",
-  {
-    prediction_config: {
-      model_type: "gnn",
-      k_neighbors: 8,
-      with_mst: false,
-      prob_weight: 0.2,
-      elev_weight: 0.3,
-      length_weight: 0.5,
-    },
-  },
-);
-serviceSettingsJson = context.updateProjectServiceSettings(
-  serviceSettingsJson,
-  "/projects/b.qgs",
-  "Same title",
-  {
-    prediction_config: {
-      model_type: "mlp",
-      k_neighbors: 18,
-      with_mst: true,
-      prob_weight: 0.5,
-      elev_weight: 0.0,
-      length_weight: 0.5,
-    },
-  },
-);
-assert.equal(
-  context.projectServiceSettings(serviceSettingsJson, "/projects/a.qgs", "Same title").prediction_config.k_neighbors,
-  8,
-);
-assert.equal(
-  context.projectServiceSettings(serviceSettingsJson, "/projects/b.qgs", "Same title").prediction_config.k_neighbors,
-  18,
-);
-assert.equal(
-  context.projectServiceSettings(serviceSettingsJson, "/projects/b.qgs", "Same title").prediction_config.model_type,
-  "mlp",
-);
+let serviceSettingsJson = context.updateProjectServiceSettings("{}", "/projects/a.qgs", "Same title", {prediction_config: custom});
+serviceSettingsJson = context.updateProjectServiceSettings(serviceSettingsJson, "/projects/b.qgs", "Same title", {prediction_config: legacy});
+assert.equal(context.projectServiceSettings(serviceSettingsJson, "/projects/a.qgs", "Same title").prediction_config.progressive_config.knn_k, 8);
+assert.equal(context.projectServiceSettings(serviceSettingsJson, "/projects/b.qgs", "Same title").prediction_config.progressive_config.knn_k, 12);
+assert.equal(context.projectServiceSettings(serviceSettingsJson, "/projects/b.qgs", "Same title").prediction_config.model_type, "progressive_gnn");
 assert.equal(context.projectServiceSettings(serviceSettingsJson, "/projects/c.qgs", "Same title"), null);
-
-let resultStatesJson = context.updatePredictionResultState(
-  "{}",
-  "/projects/a.qgs",
-  "Same title",
-  {
-    path: "/projects/DeepPipe_prediction_latest_a.geojson",
-    layer_name: "DeepPipe Prediction Results",
-    job_id: "job-a",
-    threshold: 0.85,
-    selected_count: 12,
-    saved_at: "2026-08-06T18:00:00.000Z",
-  },
-);
-assert.equal(
-  context.predictionResultState(resultStatesJson, "/projects/a.qgs", "Same title").job_id,
-  "job-a",
-);
-assert.equal(
-  context.predictionResultState(resultStatesJson, "/projects/a.qgs", "Same title").selected_count,
-  12,
-);
-assert.equal(context.predictionResultState(resultStatesJson, "/projects/b.qgs", "Same title"), null);
-resultStatesJson = context.updatePredictionResultState(
-  resultStatesJson,
-  "/projects/a.qgs",
-  "Same title",
-  null,
-);
-assert.equal(context.predictionResultState(resultStatesJson, "/projects/a.qgs", "Same title"), null);
-
-const bulkRecords = Array.from({ length: 500 }, (_, index) => ({
-  fid: index + 1,
-  nodeId: `uuid-${index + 1}`,
-  x: index,
-  y: index,
-}));
+const bulkRecords = Array.from({ length: 500 }, (_, index) => ({fid: index + 1, nodeId: `uuid-${index + 1}`, x: index, y: index}));
 const firstBulkMerge = context.mergePointRecords(bulkRecords.slice(0, 20), bulkRecords);
 assert.equal(firstBulkMerge.records.length, 500);
 assert.equal(firstBulkMerge.added, 480);
-const secondBulkMerge = context.mergePointRecords(firstBulkMerge.records, bulkRecords);
-assert.equal(secondBulkMerge.records.length, 500);
-assert.equal(secondBulkMerge.added, 0);
-
+assert.equal(context.mergePointRecords(firstBulkMerge.records, bulkRecords).added, 0);
 assert.equal(context.validateSelectedPoints(points).ok, true);
-assert.equal(context.validateSelectedPoints(points.slice(0, 2)).errors[0].code, "TOO_FEW_INLETS");
-const duplicateId = points.map((point) => ({ ...point }));
+assert.equal(context.validateSelectedPoints(points.slice(0, 3)).errors[0].code, "TOO_FEW_INLETS");
+const duplicateId = points.map(point => ({...point}));
 duplicateId[3].nodeId = "I-001";
-assert.equal(context.validateSelectedPoints(duplicateId).errors.some((error) => error.code === "DUPLICATE_NODE_ID"), true);
-
-const mst = context.buildMinimumSpanningEdges(points);
-assert.equal(mst.length, points.length - 1);
-assert.equal(
-  JSON.stringify(mst.map((edge) => [edge.from.nodeId, edge.to.nodeId])),
-  JSON.stringify([["I-001", "I-002"], ["I-002", "I-003"], ["I-003", "I-004"]]),
-);
-
-const firstPrediction = context.buildMockPrediction(points, defaults, "mock-test");
-const secondPrediction = context.buildMockPrediction(points, defaults, "mock-test");
-assert.equal(firstPrediction.ok, true);
-assert.equal(firstPrediction.summary.total, 3);
-assert.equal(JSON.stringify(firstPrediction), JSON.stringify(secondPrediction));
-assert.equal(firstPrediction.featureCollection.features.every((feature) => feature.geometry.type === "LineString"), true);
-assert.equal(firstPrediction.featureCollection.features.every((feature) => feature.properties.analysis_mode === "mock_preview"), true);
-
+assert.equal(context.validateSelectedPoints(duplicateId).errors.some(error => error.code === "DUPLICATE_NODE_ID"), true);
 const geographicPoints = [
   { fid: 11, nodeId: "G-001", x: -80, y: 35, longitude: -80, latitude: 35 },
   { fid: 12, nodeId: "G-002", x: -80, y: 35.0005, longitude: -80, latitude: 35.0005 },
   { fid: 13, nodeId: "G-003", x: -80, y: 35.001, longitude: -80, latitude: 35.001 },
+  { fid: 14, nodeId: "G-004", x: -80, y: 35.0015, longitude: -80, latitude: 35.0015 },
 ];
 assert.equal(context.validateLiveSelectedPoints(geographicPoints).ok, true);
-assert.equal(
-  context.validateLiveSelectedPoints([{ ...geographicPoints[0], longitude: 999 }, geographicPoints[1], geographicPoints[2]]).errors[0].code,
-  "INVALID_WGS84_GEOMETRY",
-);
+assert.equal(context.validateLiveSelectedPoints(geographicPoints.slice(0, 3)).ok, false);
+assert.equal(context.validateLiveSelectedPoints(geographicPoints.map((p,i) => i === 0 ? {...p, longitude: 999} : p)).errors.some(e => e.code === "INVALID_WGS84_GEOMETRY"), true);
 const liveFeatureCollection = context.featureCollectionFromPoints(geographicPoints, "node_id");
 assert.equal(liveFeatureCollection.crs.properties.name, "EPSG:4326");
-assert.deepEqual(Array.from(liveFeatureCollection.features[0].geometry.coordinates), [-80, 35]);
-assert.equal(liveFeatureCollection.features[0].properties.node_id, "G-001");
-const tightRadiusPrediction = context.buildMockPrediction(
-  geographicPoints,
-  { ...defaults, max_search_radius: 100, classification_threshold: 0.51 },
-  "tight-radius",
-);
-const wideRadiusPrediction = context.buildMockPrediction(
-  geographicPoints,
-  { ...defaults, max_search_radius: 500, classification_threshold: 0.51 },
-  "wide-radius",
-);
-assert.equal(tightRadiusPrediction.featureCollection.features.every((feature) => feature.properties.within_search_radius === 0), true);
-assert.equal(wideRadiusPrediction.featureCollection.features.every((feature) => feature.properties.within_search_radius === 1), true);
-assert.equal(tightRadiusPrediction.summary.predicted, 0);
-assert.equal(wideRadiusPrediction.summary.predicted, 2);
-assert.equal(wideRadiusPrediction.featureCollection.features.every((feature) => feature.properties.distance_ft > 150), true);
-const tightRadiusPartitions = context.partitionPredictionResults(
-  tightRadiusPrediction.featureCollection,
-  tightRadiusPrediction.summary.threshold,
-);
-assert.equal(tightRadiusPartitions.predictedCount, tightRadiusPrediction.summary.predicted);
-assert.equal(tightRadiusPartitions.potentialCount, tightRadiusPrediction.summary.potential);
-
-const request = context.buildPredictionRequest(
-  liveFeatureCollection,
-  "node_id",
-  defaults,
-  { client_request_id: "abc", project_id: "demo", layer_id: "inlets", selected_feature_ids: [1, 2, 3] },
-);
-assert.equal(request.nodes.type, "FeatureCollection");
+assert.deepEqual(plain(liveFeatureCollection.features[0].geometry.coordinates), [-80, 35]);
+const request = context.buildPredictionRequest(liveFeatureCollection, "node_id", custom, {client_request_id: "abc"});
+assert.deepEqual(Object.keys(request).sort(), ["model_type", "node_id_field", "nodes", "progressive_config", "workflow_type"]);
+assert.equal(request.workflow_type, "progressive");
+assert.equal(request.model_type, "progressive_gnn");
 assert.equal(request.node_id_field, "node_id");
-assert.equal(request.k_neighbors, 12);
-assert.equal(request.classification_threshold, 0.85);
-assert.equal(request.with_mst, true);
-assert.equal(request.prob_weight + request.elev_weight + request.length_weight, 1);
-assert.equal("schema_version" in request, false);
-assert.equal("parameters" in request, false);
+assert.equal(request.progressive_config.knn_max_distance_ft, 400);
+request.progressive_config.rounds = 7;
+assert.equal(custom.progressive_config.rounds, 4, "request must copy nested settings");
+const firstPrediction = context.buildMockPrediction(points, defaults, "mock-test");
+assert.equal(firstPrediction.ok, true);
+assert.equal(firstPrediction.summary.predicted, 3);
+assert.equal(JSON.stringify(firstPrediction), JSON.stringify(context.buildMockPrediction(points, defaults, "mock-test")));
+assert.equal(firstPrediction.featureCollection.features.every(f => f.properties.analysis_mode === "mock_preview"), true);
+
+// Observation snapshots use original undirected IDs, never feature row indices.
+assert.deepEqual(plain(context.canonicalNodePair(2, "001")), {node_u: "001", node_v: "2", key: '["001","2"]'});
+assert.equal(context.canonicalNodePair("A|B", "C").key === context.canonicalNodePair("A", "B|C").key, false);
+assert.equal(context.canonicalNodePair("B", "A").key, context.canonicalNodePair("A", "B").key);
+for (const id of [true, false, null, undefined, "", "  ", 1.5, Infinity, NaN]) {
+  assert.throws(() => context.canonicalNodePair(id, "valid"));
+}
+assert.throws(() => context.canonicalNodePair(7, "7"), /itself/);
+const confirmed = {node_u: "G-002", node_v: "G-001", state: "connected"};
+const negative = {node_u: "G-003", node_v: "G-004", state: "disconnected"};
+const observations = context.normalizeObservations([confirmed, confirmed, negative], liveFeatureCollection, "node_id");
+assert.equal(observations.length, 2);
+assert.equal(observations[0].node_u, "G-001");
+assert.throws(() => context.normalizeObservations([confirmed, {...confirmed, state: "disconnected"}]), /both/);
+assert.throws(() => context.normalizeObservations([{...confirmed, node_v: "missing"}], liveFeatureCollection), /unknown/);
+assert.throws(() => context.normalizeObservations([{...confirmed, state: "unknown"}]), /state/);
+assert.throws(() => context.normalizeObservations({observations: []}), /list/);
+const originalObservations = JSON.stringify(observations);
+const removed = context.setObservation(observations, "G-001", "G-002", "unknown", liveFeatureCollection);
+assert.equal(removed.length, 1);
+assert.equal(JSON.stringify(observations), originalObservations, "edits must preserve undo snapshots");
+const restored = context.setObservation(removed, "G-001", "G-002", "connected", liveFeatureCollection);
+assert.equal(context.observationsEqual(restored, observations), true);
+assert.equal(context.observationState(restored, "G-004", "G-003"), "disconnected");
+assert.equal(context.observationState(restored, "G-001", "G-004"), "unknown");
+assert.throws(() => context.setObservation(observations, "unknown", "G-001", "unknown", liveFeatureCollection), /unknown/);
+const reset = context.resetObservations(observations);
+reset[0].state = "disconnected";
+assert.equal(observations[0].state, "connected");
+assert.deepEqual(plain(context.clearObservations()), []);
+const history = [observations, removed];
+const undone = context.undoObservation(history, []);
+assert.deepEqual(plain(undone.observations), plain(removed));
+assert.equal(undone.history.length, 1);
+assert.equal(history.length, 2);
+assert.deepEqual(plain(context.buildRefinementRequest([], liveFeatureCollection)), {observations: []}, "empty snapshot clears previous observations");
+assert.deepEqual(plain(context.buildRefinementRequest(observations, liveFeatureCollection)).observations, plain(observations));
+const observationGeometry = context.observationFeatureCollection(liveFeatureCollection, observations, "node_id");
+assert.equal(observationGeometry.features.length, 2);
+assert.deepEqual(plain(observationGeometry.features[0].geometry.coordinates), [[-80, 35], [-80, 35.0005]]);
+assert.equal(observationGeometry.features[0].properties.observation, 1);
+assert.equal(observationGeometry.features[1].properties.observation, 0);
+assert.equal("model_prob" in observationGeometry.features[0].properties, false, "manual outside pairs must not invent neural scores");
+const candidates = {type:"FeatureCollection", features:[{
+  type:"Feature", properties:{node_u:"G-002",node_v:"G-001",class:0,model_prob:0.15},
+  geometry:{type:"LineString",coordinates:[[-80,35.0005],[-80,35]]},
+}]};
+const reviewRows = context.observationRows(candidates, observations);
+assert.equal(reviewRows.length, 2, "outside observed pairs appear beside scored candidates");
+assert.equal(reviewRows[0].model_prob, 0.15);
+assert.equal(reviewRows[0].state, "connected");
+assert.equal(reviewRows[0].selected, false);
+assert.equal(reviewRows[1].model_prob, null);
+const extended = context.mergeObservationCandidates(candidates, liveFeatureCollection, observations, "node_id");
+assert.equal(extended.features.length, 2);
+assert.equal(candidates.features.length, 1);
+assert.deepEqual(plain(extended.features[1].geometry.coordinates), [[-80,35.001],[-80,35.0015]]);
+const outside = context.createObservationEdge(liveFeatureCollection, "G-001", "G-004", "connected", "node_id");
+assert.deepEqual(plain(outside.geometry.coordinates), [[-80,35],[-80,35.0015]]);
+assert.throws(() => context.createObservationEdge(liveFeatureCollection, "missing", "G-004", "connected", "node_id"), /unknown/);
+
+// Project-scoped persistence includes immutable inputs, candidates, and saved/draft snapshots.
+let resultStatesJson = context.updatePredictionResultState("{}", "/projects/a.qgs", "Same title", {
+  path:"/projects/result-a.geojson", job_id:"job-a", parent_job_id:"parent-a", selected_count:4,
+  api_base_url:"https://prediction.example.org/current/",
+  prediction_config:custom, input_nodes:liveFeatureCollection, candidates,
+  observations, draft_observations:removed, node_id_field:"node_id", workflow_type:"progressive",
+});
+const state = context.predictionResultState(resultStatesJson, "/projects/a.qgs", "Same title");
+assert.equal(state.job_id, "job-a");
+assert.equal(state.parent_job_id, "parent-a");
+assert.equal(state.api_base_url, "https://prediction.example.org/current");
+assert.equal(state.workflow_type, "progressive");
+assert.equal(state.prediction_config.progressive_config.knn_k, 8);
+assert.equal(state.input_nodes.features.length, 4);
+assert.equal(state.candidates.features[0].properties.model_prob, 0.15);
+assert.equal(state.observations.length, 2);
+assert.equal(state.draft_observations.length, 1);
+assert.equal(context.predictionResultState(resultStatesJson, "/projects/b.qgs", "Same title"), null);
+resultStatesJson = context.updatePredictionResultState(resultStatesJson, "/projects/b.qgs", "Same title", {
+  path:"",job_id:"empty-job",input_nodes:liveFeatureCollection,observations:[],draft_observations:[],
+  result_summary:{predicted:0,selectedInlets:4},
+});
+assert.equal(context.predictionResultState(resultStatesJson, "/projects/b.qgs", "Same title").job_id, "empty-job");
+assert.equal(context.predictionResultState(resultStatesJson, "/projects/b.qgs", "Same title").result_summary.predicted, 0);
+assert.equal(context.predictionResultState(resultStatesJson, "/projects/a.qgs", "Same title").job_id, "job-a");
+const historical = context.updatePredictionResultState("{}", "/projects/old.qgs", "Old", {path:"old.geojson",job_id:"legacy-job"});
+assert.equal(context.predictionResultState(historical, "/projects/old.qgs", "Old").workflow_type, "legacy");
+resultStatesJson = context.updatePredictionResultState(resultStatesJson, "/projects/a.qgs", "Same title", null);
+assert.equal(context.predictionResultState(resultStatesJson, "/projects/a.qgs", "Same title"), null);
+assert.equal(context.predictionResultState(resultStatesJson, "/projects/b.qgs", "Same title").job_id, "empty-job");
 
 assert.equal(context.normalizeApiBaseUrl("https://lab.yyworkshop.com/predapi/"), "https://lab.yyworkshop.com/predapi");
 assert.equal(context.normalizeApiBaseUrl("lab.yyworkshop.com"), "");
@@ -255,49 +223,55 @@ const livePipeResult = {
     geometry: { type: "LineString", coordinates: [[-80, 35], [-80, 35.0005]] },
   }],
 };
-const decorated = context.decorateLiveResult(livePipeResult, "job-123");
+const decorated = context.decorateLiveResult(livePipeResult, "job-123", 0.5);
 assert.equal(decorated.features[0].properties.job_id, "job-123");
 assert.equal(decorated.features[0].properties.analysis_mode, "live_api");
 assert.equal(decorated.features[0].properties.deeppipe_outcome, "predicted");
 assert.equal(decorated.crs.properties.name, "EPSG:4326");
-const thresholdDecorated = context.decorateLiveResult(livePipeResult, "job-123", 0.85);
-assert.equal(thresholdDecorated.features[0].properties.deeppipe_outcome, "predicted");
-assert.equal(thresholdDecorated.features[0].properties.deeppipe_color, "#005035");
-assert.equal(context.predictionResultType({ properties: { class: 0, model_class: 1, prob: 0.92 } }, 0.85), "potential");
-assert.equal(context.predictionResultType({ properties: { is_connect: -1 } }, 0.85), "excluded");
-assert.equal(context.predictionResultType({ properties: { probability: 0.92 } }, 0.85), "unknown");
-assert.equal(context.predictionResultType({ properties: { class: 0, model_class: 1, score: 0.81 } }, 0.85), "excluded");
-assert.equal(context.predictionResultType({ properties: { model_class: 0, class: 1, prob: 0.92 } }, 0.85), "excluded");
-assert.equal(context.predictionResultType({ properties: { result_type: "candidate" } }, 0.85), "excluded");
-const partitioned = context.partitionPredictionResults({
+assert.equal(decorated.features[0].properties.deeppipe_color, "#005035");
+// Final selected class outranks raw model scores and legacy classifier flags.
+assert.equal(context.predictionResultType({ properties: { class: 1, model_class: 0, prob: 0.08 } }, 0.85), "predicted");
+assert.equal(context.predictionResultType({ properties: { class: 0, model_class: 1, prob: 0.99 } }, 0.5), "excluded");
+assert.equal(context.predictionResultType({ properties: { result_type: "candidate" } }, 0.5), "excluded");
+assert.equal(context.predictionResultType({ properties: { probability: 0.92 } }, 0.5), "unknown");
+assert.equal(context.predictionResultType({ properties: { workflow_type: "legacy", class: 0, model_class: 1, prob: 0.92 } }, 0.85), "potential");
+const finalResult = {
   type: "FeatureCollection",
   features: [
-    { type: "Feature", properties: { class: 1, model_class: 1, prob: 0.92 }, geometry: null },
-    { type: "Feature", properties: { class: 0, model_class: 1, prob: 0.91 }, geometry: null },
-    { type: "Feature", properties: { class: 0, model_class: 1, prob: 0.50 }, geometry: null },
-    { type: "Feature", properties: {}, geometry: null },
+    { type: "Feature", properties: { node_u: "A", node_v: "B", class: 1, model_prob: 0.08, prob: 1, observation: 1, model_class: 0 }, geometry: null },
+    { type: "Feature", properties: { node_u: "B", node_v: "C", class: 0, model_prob: 0.99, prob: 0.99, observation: 0 }, geometry: null },
+    { type: "Feature", properties: { node_u: "A", node_v: "C", class: 1, neural_probability: 0.72, effective_probability: 0.72 }, geometry: null },
+    { type: "Feature", properties: { node_u: "C", node_v: "D", class: 0, model_prob: 0.95, prob: 0.95 }, geometry: null },
   ],
-}, 0.85);
-assert.equal(partitioned.predictedCount, 1);
-assert.equal(partitioned.potentialCount, 1);
-assert.equal(partitioned.unknownCount, 0);
+};
+const finalCopy = JSON.stringify(finalResult);
+const finalDecorated = context.decorateLiveResult(finalResult, "refined-job", 0.5);
+assert.equal(JSON.stringify(finalResult), finalCopy, "decorate must not mutate server data");
+const forced = finalDecorated.features[0].properties;
+assert.equal(forced.model_prob, 0.08);
+assert.equal(forced.prob, 1);
+assert.equal(forced.effective_prob, 1);
+assert.equal(forced.effective_probability, 1);
+assert.equal(forced.deeppipe_outcome, "predicted");
+assert.equal(forced.deeppipe_color, "#005035");
+assert.equal(finalDecorated.features[1].properties.model_prob, 0.99);
+assert.equal(finalDecorated.features[1].properties.prob, 0);
+const unscoredConfirmed = {type:"FeatureCollection", features:[{
+  type:"Feature", properties:{node_u:"A",node_v:"D",class:1,model_prob:null,prob:1,observation:1}, geometry:null,
+}]};
+assert.equal(context.decorateLiveResult(unscoredConfirmed, "new").features[0].properties.model_prob, null);
+assert.equal(context.observationRows(unscoredConfirmed, [])[0].model_prob, null, "a hard effective score must not become a fabricated model score");
+assert.equal("model_prob" in context.effectivePredictionProperties({class:1,prob:1,observation:1}), false);
+const partitioned = context.partitionPredictionResults(finalDecorated, 0.5);
+assert.equal(partitioned.predictedCount, 2);
+assert.equal(partitioned.potentialCount, 0);
 assert.equal(partitioned.excludedCount, 2);
 assert.equal(partitioned.total, 2);
-const liveSummary = context.summarizeLiveResult(thresholdDecorated, 3, 0.85);
-assert.equal(liveSummary.predicted, 1);
-assert.equal(liveSummary.potential, 0);
-assert.equal(liveSummary.unknown, 0);
-
-const resultTable = context.predictionAttributeTable({
-  type: "FeatureCollection",
-  features: partitioned.predicted.features.concat(partitioned.potential.features),
-});
+assert.equal(context.summarizeLiveResult(finalDecorated, 4, 0.5).predicted, 2);
+const resultTable = context.predictionAttributeTable(partitioned.predicted);
 assert.equal(resultTable.rows.length, 2);
-assert.deepEqual(Array.from(resultTable.columns.slice(0, 6), (column) => column.key), [
-  "__row", "deeppipe_outcome", "prob", "class", "model_class", "deeppipe_color",
-]);
-assert.equal(resultTable.rows[1].deeppipe_outcome, "potential");
-assert.equal(resultTable.rows[1].deeppipe_color, "#F4C430");
+assert.ok(resultTable.columns.some(column => column.key === "model_prob" && column.label === "Model probability"));
+assert.ok(resultTable.columns.some(column => column.key === "class" && column.label === "Final selected class"));
 
 assert.equal(
   context.featureCollectionMultiLineWkt(livePipeResult),

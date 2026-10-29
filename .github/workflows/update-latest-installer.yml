@@ -2,6 +2,9 @@ name: Verify installer package
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
 
 permissions:
   contents: read
@@ -18,6 +21,14 @@ jobs:
         run: |
           node tests/test_logic.mjs
           node tests/validate_source.mjs
+
+      - name: Install Qt test runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qt6-declarative-dev-tools qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts qml6-module-qtquick-window qml6-module-qtquick-templates qml6-module-qtquick-shapes qml6-module-qtqml-workerscript qml6-module-qttest qml6-module-qtcore
+
+      - name: Test native QML controls and runtime with host fakes
+        run: ./scripts/test_qml.sh
 
       - name: Build installers
         run: ./build.sh

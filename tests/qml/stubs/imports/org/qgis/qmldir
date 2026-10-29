@@ -1,0 +1,3 @@
+module org.qgis
+singleton GeometryUtils 1.0 GeometryUtils.qml
+singleton CoordinateReferenceSystemUtils 1.0 CoordinateReferenceSystemUtils.qml

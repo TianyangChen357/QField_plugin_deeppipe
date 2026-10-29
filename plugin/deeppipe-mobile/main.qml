@@ -12,9 +12,10 @@ Item {
     id: plugin
     objectName: "deepPipeMobilePlugin"
 
-    readonly property string pluginVersion: "0.6.1"
-    readonly property string defaultApiBaseUrl: "https://lab.yyworkshop.com/predapi"
+    readonly property string pluginVersion: "0.7.0"
+    readonly property string defaultApiBaseUrl: "https://eegs4y29nw3lws.charlotte.edu:8080/deeppipe/predapi"
     readonly property string defaultPassApiBaseUrl: "https://lab.yyworkshop.com"
+    readonly property string legacyApiBaseUrl: "https://lab.yyworkshop.com/predapi"
 
     property var mainWindow: iface.mainWindow()
     property var mapCanvas: iface.mapCanvas()
@@ -62,6 +63,29 @@ Item {
     property string predictionResultPath: ""
     property string lastPredictionExportPath: ""
     property string lastCompletedJobId: ""
+    // A result owns an immutable copy of its input, independent of the inlet
+    // selection used for the next new prediction. Refinements always use the
+    // server-side parent job and this complete observation snapshot.
+    property var resultInputNodes: null
+    property var resultCandidates: ({ type: "FeatureCollection", features: [] })
+    property string resultNodeIdField: ""
+    property string resultWorkflowType: ""
+    property string resultParentJobId: ""
+    property string resultApiBaseUrl: ""
+    property var resultPredictionConfig: null
+    property var savedObservations: []
+    property var observationDraft: []
+    property var observationHistory: []
+    property var observationRows: []
+    property string observationMessage: "Run a Progressive GNN prediction to review field observations."
+    property string observationFirstNode: ""
+    property bool observationOverlayVisible: false
+    property bool hasConnectedObservationGeometry: false
+    property bool hasDisconnectedObservationGeometry: false
+    readonly property bool observationDirty: JSON.stringify(observationDraft) !== JSON.stringify(savedObservations)
+    readonly property bool canUpdateObservations: appSettings.useLiveApi && Boolean(lastCompletedJobId) &&
+            resultWorkflowType === "progressive" && Boolean(resultInputNodes) &&
+            !activeJobId && !activeRequest && predictionStatus !== "submitting"
     property bool hasPredictedResultGeometry: false
     property bool hasPotentialResultGeometry: false
     property bool focusedResultVisible: false
@@ -73,7 +97,15 @@ Item {
     property string activeJobProjectKey: ""
     property string activeJobProjectName: ""
     property int activeJobSelectedCount: 0
-    property double activeJobThreshold: 0.85
+    property double activeJobThreshold: 0.5
+    property var activeJobInputNodes: null
+    property string activeJobNodeIdField: ""
+    property var activeJobConfig: null
+    property var activeJobObservations: []
+    property string activeJobParentId: ""
+    property string activeJobWorkflowType: ""
+    property string activeJobApiBaseUrl: ""
+    property var activeJobCandidates: null
     property int pollFailureCount: 0
 
     property var activeRequest: null
@@ -155,6 +187,30 @@ Item {
         z: 9002
     }
 
+    QFieldItems.GeometryRenderer {
+        id: connectedObservationOverlay
+        parent: mapCanvas ? mapCanvas : plugin
+        anchors.fill: parent
+        mapSettings: mapCanvas ? mapCanvas.mapSettings : null
+        color: "#075985"
+        lineWidth: 7
+        visible: plugin.observationOverlayVisible && plugin.hasConnectedObservationGeometry
+        z: 9003
+    }
+
+    QFieldItems.GeometryRenderer {
+        id: disconnectedObservationOverlay
+        parent: mapCanvas ? mapCanvas : plugin
+        anchors.fill: parent
+        mapSettings: mapCanvas ? mapCanvas.mapSettings : null
+        color: "#dc2626"
+        lineWidth: 7
+        // Dash segments are actual line geometries, so they also work on QField
+        // builds whose public GeometryRenderer has no line-style property.
+        visible: plugin.observationOverlayVisible && plugin.hasDisconnectedObservationGeometry
+        z: 9004
+    }
+
     Settings {
         id: appSettings
         category: "deeppipe-mobile"
@@ -189,6 +245,9 @@ Item {
             }
             if (plugin.interactionMode === "assessment_location") {
                 return plugin.handleAssessmentMapTap(point);
+            }
+            if (plugin.interactionMode === "observation_pair") {
+                return plugin.handleObservationMapTap(point);
             }
             return false;
         };
@@ -301,6 +360,11 @@ Item {
         return sendApiRequestTo(defaultApiBaseUrl, method, path, body, timeoutMs, callback);
     }
 
+    function sendJobApiRequest(method, path, body, timeoutMs, callback) {
+        return sendApiRequestTo(activeJobApiBaseUrl || defaultApiBaseUrl,
+                                method, path, body, timeoutMs, callback);
+    }
+
     function saveCurrentProjectServiceSettings() {
         if (!hasProject || !currentProjectKey) return;
         appSettings.projectServiceSettingsJson = DeepPipe.updateProjectServiceSettings(
@@ -321,7 +385,7 @@ Item {
     }
 
     function savePredictionResultState(path, jobId, threshold, selectedCount) {
-        if (!hasProject || !currentProjectKey || !path) return;
+        if (!hasProject || !currentProjectKey || !jobId) return;
         appSettings.projectPredictionResultsJson = DeepPipe.updatePredictionResultState(
                     appSettings.projectPredictionResultsJson,
                     projectPath,
@@ -332,8 +396,223 @@ Item {
                         job_id: jobId,
                         threshold: threshold,
                         selected_count: selectedCount,
+                        input_nodes: resultInputNodes,
+                        candidates: resultCandidates,
+                        observations: savedObservations,
+                        draft_observations: observationDraft,
+                        prediction_config: resultPredictionConfig,
+                        node_id_field: resultNodeIdField,
+                        workflow_type: resultWorkflowType,
+                        parent_job_id: resultParentJobId,
+                        api_base_url: resultApiBaseUrl,
+                        result_summary: predictionSummary,
                         saved_at: new Date().toISOString()
                     });
+    }
+
+    function persistObservationDraft() {
+        if (!lastCompletedJobId) return;
+        savePredictionResultState(predictionResultPath, lastCompletedJobId, 0.5,
+                                  predictionSummary ? predictionSummary.selectedInlets : 0);
+    }
+
+    function clearObservationRuntime() {
+        resultInputNodes = null;
+        resultCandidates = ({ type: "FeatureCollection", features: [] });
+        resultNodeIdField = "";
+        resultWorkflowType = "";
+        resultParentJobId = "";
+        resultApiBaseUrl = "";
+        resultPredictionConfig = null;
+        savedObservations = [];
+        observationDraft = [];
+        observationHistory = [];
+        observationRows = [];
+        observationFirstNode = "";
+        observationMessage = "Run a Progressive GNN prediction to review field observations.";
+        observationOverlayVisible = false;
+        hasConnectedObservationGeometry = false;
+        hasDisconnectedObservationGeometry = false;
+        connectedObservationOverlay.geometryWrapper.clear();
+        disconnectedObservationOverlay.geometryWrapper.clear();
+    }
+
+    function restoreObservationState(state) {
+        clearObservationRuntime();
+        if (!state) return;
+        resultInputNodes = state.input_nodes || null;
+        resultCandidates = state.candidates || ({ type: "FeatureCollection", features: [] });
+        resultNodeIdField = String(state.node_id_field || "");
+        resultWorkflowType = String(state.workflow_type || "");
+        resultParentJobId = String(state.parent_job_id || "");
+        resultApiBaseUrl = DeepPipe.normalizeApiBaseUrl(state.api_base_url) ||
+                (resultWorkflowType === "progressive" ? defaultApiBaseUrl : legacyApiBaseUrl);
+        resultPredictionConfig = state.prediction_config || null;
+        try {
+            savedObservations = DeepPipe.normalizeObservations(state.observations || [], resultInputNodes, resultNodeIdField);
+            observationDraft = DeepPipe.normalizeObservations(
+                        state.draft_observations === undefined ? savedObservations : state.draft_observations,
+                        resultInputNodes, resultNodeIdField);
+            refreshObservationReview(observationDirty);
+        } catch (error) {
+            observationMessage = "Saved observations could not be restored: " + String(error);
+        }
+    }
+
+    function dashedObservationCollection(collection) {
+        var dashed = { type: "FeatureCollection", features: [] };
+        (collection.features || []).forEach(function (feature) {
+            if (!feature.geometry || feature.geometry.type !== "LineString") return;
+            var points = feature.geometry.coordinates || [];
+            for (var index = 1; index < points.length; index += 1) {
+                var start = points[index - 1];
+                var end = points[index];
+                var latitude = (Number(start[1]) + Number(end[1])) * Math.PI / 360;
+                var dx = (Number(end[0]) - Number(start[0])) * 111320 * Math.cos(latitude);
+                var dy = (Number(end[1]) - Number(start[1])) * 111320;
+                var distance = Math.sqrt(dx * dx + dy * dy);
+                var count = Math.min(400, Math.max(4, Math.ceil(distance / 5)));
+                for (var dash = 0; dash < count; dash += 1) {
+                    var first = dash / count;
+                    var last = (dash + 0.58) / count;
+                    dashed.features.push({ type: "Feature", properties: {}, geometry: {
+                        type: "LineString", coordinates: [
+                            [start[0] + (end[0] - start[0]) * first, start[1] + (end[1] - start[1]) * first],
+                            [start[0] + (end[0] - start[0]) * last, start[1] + (end[1] - start[1]) * last]
+                        ]
+                    }});
+                }
+            }
+        });
+        return dashed;
+    }
+
+    function setObservationOverlay(renderer, collection) {
+        renderer.geometryWrapper.clear();
+        if (!collection || !collection.features || collection.features.length === 0) return false;
+        var wkt = DeepPipe.featureCollectionMultiLineWkt(collection);
+        if (!wkt) return false;
+        var geometry = GeometryUtils.createGeometryFromWkt(wkt);
+        if (!geometry) return false;
+        renderer.geometryWrapper.crs = CoordinateReferenceSystemUtils.wgs84Crs();
+        renderer.geometryWrapper.qgsGeometry = geometry;
+        return true;
+    }
+
+    function refreshObservationReview(showOverlay) {
+        observationRows = DeepPipe.observationRows(resultCandidates, observationDraft);
+        observationOverlayVisible = Boolean(showOverlay);
+        if (!resultInputNodes || resultWorkflowType !== "progressive") {
+            hasConnectedObservationGeometry = false;
+            hasDisconnectedObservationGeometry = false;
+            return;
+        }
+        var collection = DeepPipe.observationFeatureCollection(resultInputNodes, observationDraft, resultNodeIdField);
+        var connected = { type: "FeatureCollection", features: [] };
+        var disconnected = { type: "FeatureCollection", features: [] };
+        collection.features.forEach(function (feature) {
+            if (feature.properties.state === "connected") connected.features.push(feature);
+            if (feature.properties.state === "disconnected") disconnected.features.push(feature);
+        });
+        hasConnectedObservationGeometry = setObservationOverlay(connectedObservationOverlay, connected);
+        hasDisconnectedObservationGeometry = setObservationOverlay(
+                    disconnectedObservationOverlay, dashedObservationCollection(disconnected));
+        observationMessage = observationDirty
+                ? "Field observations are saved on this device. Update prediction to apply this complete snapshot."
+                : "Review any candidate, including unselected pipes, or add a pair from the original input inlets.";
+    }
+
+    function changeObservation(nodeU, nodeV, state) {
+        if (!canUpdateObservations) return;
+        try {
+            var next = DeepPipe.setObservation(observationDraft, nodeU, nodeV, state,
+                                               resultInputNodes, resultNodeIdField);
+            if (JSON.stringify(next) === JSON.stringify(observationDraft)) return;
+            var history = observationHistory.slice();
+            history.push(JSON.parse(JSON.stringify(observationDraft)));
+            observationHistory = history;
+            observationDraft = next;
+            refreshObservationReview(observationDirty);
+            persistObservationDraft();
+        } catch (error) {
+            observationMessage = String(error);
+            toast(observationMessage);
+        }
+    }
+
+    function undoObservation() {
+        if (!canUpdateObservations || observationHistory.length === 0) return;
+        var history = observationHistory.slice();
+        observationDraft = history.pop();
+        observationHistory = history;
+        refreshObservationReview(observationDirty);
+        persistObservationDraft();
+    }
+
+    function replaceObservationDraft(snapshot) {
+        if (!canUpdateObservations) return;
+        var next = DeepPipe.normalizeObservations(snapshot, resultInputNodes, resultNodeIdField);
+        if (JSON.stringify(next) === JSON.stringify(observationDraft)) return;
+        var history = observationHistory.slice();
+        history.push(JSON.parse(JSON.stringify(observationDraft)));
+        observationHistory = history;
+        observationDraft = next;
+        refreshObservationReview(observationDirty);
+        persistObservationDraft();
+    }
+
+    function startObservationPairSelection() {
+        if (!canUpdateObservations) return;
+        observationFirstNode = "";
+        ensurePointHandlerRegistered(false);
+        interactionMode = "observation_pair";
+        panelDrawer.close();
+        toast("Tap two original input inlets to confirm a connection.");
+    }
+
+    function handleObservationMapTap(screenPoint) {
+        if (!resultInputNodes || !mapCanvas) return true;
+        var now = Date.now();
+        if (now - lastMapTapMs < 220) return true;
+        lastMapTapMs = now;
+        var rectangle = mapRectangleFromScreenBounds(screenPoint.x - 20, screenPoint.y - 20,
+                                                     screenPoint.x + 20, screenPoint.y + 20);
+        var tapPoint = mapCanvas.mapSettings.screenToCoordinate(screenPoint);
+        var nearestId = "";
+        var shortest = Number.POSITIVE_INFINITY;
+        (resultInputNodes.features || []).forEach(function (feature) {
+            var coordinates = feature.geometry && feature.geometry.type === "Point"
+                    ? feature.geometry.coordinates : null;
+            if (!coordinates) return;
+            var point = GeometryUtils.reprojectPoint(GeometryUtils.point(coordinates[0], coordinates[1]),
+                            CoordinateReferenceSystemUtils.wgs84Crs(), mapCanvas.mapSettings.destinationCrs);
+            if (point.x < rectangleNumber(rectangle, "xMinimum") ||
+                    point.x > rectangleNumber(rectangle, "xMaximum") ||
+                    point.y < rectangleNumber(rectangle, "yMinimum") ||
+                    point.y > rectangleNumber(rectangle, "yMaximum")) return;
+            var distance = GeometryUtils.distanceBetweenPoints(tapPoint, point);
+            if (distance < shortest) {
+                shortest = distance;
+                nearestId = String(feature.properties[resultNodeIdField]);
+            }
+        });
+        if (!nearestId) {
+            toast("Tap an inlet from the original prediction input. Zoom in and try again.");
+            return true;
+        }
+        if (!observationFirstNode) {
+            observationFirstNode = nearestId;
+            toast("First inlet: " + nearestId + ". Tap the second inlet.");
+            return true;
+        }
+        if (observationFirstNode === nearestId) {
+            toast("Choose a different second inlet.");
+            return true;
+        }
+        changeObservation(observationFirstNode, nearestId, "connected");
+        observationFirstNode = "";
+        finishMapInteraction();
+        return true;
     }
 
     function clearPredictionResultState() {
@@ -394,42 +673,84 @@ Item {
     }
 
     function persistActiveJob() {
-        if (!activeJobId) {
-            appSettings.pendingJobsJson = "[]";
-            return;
-        }
-        appSettings.pendingJobsJson = JSON.stringify([{
+        if (!activeJobId) return;
+        var pendingJobs = DeepPipe.tryParseJson(appSettings.pendingJobsJson);
+        if (!Array.isArray(pendingJobs)) pendingJobs = [];
+        pendingJobs = pendingJobs.filter(function (pending) {
+            return pending && pending.project_key !== activeJobProjectKey;
+        });
+        pendingJobs.push({
             job_id: activeJobId,
             project_key: activeJobProjectKey,
             project_name: activeJobProjectName,
             selected_count: activeJobSelectedCount,
             threshold: activeJobThreshold,
+            input_nodes: activeJobInputNodes,
+            node_id_field: activeJobNodeIdField,
+            prediction_config: activeJobConfig,
+            observations: activeJobObservations,
+            parent_job_id: activeJobParentId,
+            workflow_type: activeJobWorkflowType,
+            api_base_url: activeJobApiBaseUrl,
             saved_at: new Date().toISOString()
-        }]);
+        });
+        appSettings.pendingJobsJson = JSON.stringify(pendingJobs);
     }
 
-    function clearActiveJob() {
+    function detachActiveJob() {
         jobPollTimer.stop();
         activeJobId = "";
         activeJobProjectKey = "";
         activeJobProjectName = "";
         activeJobSelectedCount = 0;
-        activeJobThreshold = predictionConfig.classification_threshold;
+        activeJobThreshold = 0.5;
+        activeJobInputNodes = null;
+        activeJobNodeIdField = "";
+        activeJobConfig = null;
+        activeJobObservations = [];
+        activeJobParentId = "";
+        activeJobWorkflowType = "";
+        activeJobApiBaseUrl = "";
+        activeJobCandidates = null;
         pollFailureCount = 0;
-        appSettings.pendingJobsJson = "[]";
+    }
+
+    function clearActiveJob() {
+        var completedId = activeJobId;
+        var pendingJobs = DeepPipe.tryParseJson(appSettings.pendingJobsJson);
+        if (Array.isArray(pendingJobs)) {
+            appSettings.pendingJobsJson = JSON.stringify(pendingJobs.filter(function (pending) {
+                return pending && String(pending.job_id) !== completedId;
+            }));
+        }
+        detachActiveJob();
     }
 
     function restorePendingJob() {
         if (!hasProject) return;
         if (!activeJobId) {
             var stored = DeepPipe.tryParseJson(appSettings.pendingJobsJson);
-            if (!Array.isArray(stored) || stored.length === 0 || !stored[0].job_id) return;
-            var pending = stored[0];
+            if (!Array.isArray(stored)) return;
+            var pending = null;
+            stored.forEach(function (entry) {
+                if (entry && entry.job_id &&
+                        (entry.project_key === currentProjectKey ||
+                         (!entry.project_key && entry.project_name === projectName))) pending = entry;
+            });
+            if (!pending) return;
             activeJobId = String(pending.job_id);
             activeJobProjectKey = String(pending.project_key || "");
             activeJobProjectName = String(pending.project_name || "");
             activeJobSelectedCount = Number(pending.selected_count || 0);
-            activeJobThreshold = Number(pending.threshold || predictionConfig.classification_threshold);
+            activeJobThreshold = Number(pending.threshold || 0.5);
+            activeJobInputNodes = pending.input_nodes || null;
+            activeJobNodeIdField = String(pending.node_id_field || "");
+            activeJobConfig = pending.prediction_config || null;
+            activeJobObservations = pending.observations || [];
+            activeJobParentId = String(pending.parent_job_id || "");
+            activeJobWorkflowType = String(pending.workflow_type || "classic");
+            activeJobApiBaseUrl = DeepPipe.normalizeApiBaseUrl(pending.api_base_url) ||
+                    (activeJobWorkflowType === "progressive" ? defaultApiBaseUrl : legacyApiBaseUrl);
         }
         predictionStatus = "queued";
         if ((activeJobProjectKey && activeJobProjectKey !== currentProjectKey) ||
@@ -438,6 +759,7 @@ Item {
             return;
         }
         predictionMessage = "Resuming prediction job " + activeJobId + "…";
+        refreshObservationReview(Boolean(activeJobParentId) || observationDirty);
         jobPollTimer.interval = 300;
         jobPollTimer.restart();
     }
@@ -596,11 +918,19 @@ Item {
                 previousProjectKey !== currentProjectKey ||
                 previousLayerId !== inletLayerId;
         if (shouldReset) {
+            if (activeJobId) persistActiveJob();
+            abandonActiveRequest();
+            detachActiveJob();
             releasePointHandler();
+            interactionMode = "idle";
             selectedFids = [];
             selectedPoints = [];
             detachPredictionLayer();
             lastCompletedJobId = "";
+            predictionSummary = null;
+            predictionStatus = "idle";
+            predictionMessage = "";
+            clearObservationRuntime();
             removeManagedRasterLayers();
             assessmentLatitude = NaN;
             assessmentLongitude = NaN;
@@ -787,12 +1117,14 @@ Item {
 
     function finishMapInteraction() {
         interactionMode = "idle";
+        observationFirstNode = "";
         releasePointHandler();
         panelDrawer.open();
     }
 
     function cancelMapInteraction() {
         interactionMode = "idle";
+        observationFirstNode = "";
         releasePointHandler();
         panelDrawer.open();
     }
@@ -1225,17 +1557,24 @@ Item {
         detachPredictionLayer();
         predictionSummary = null;
         if (!preserveCompletedJob) lastCompletedJobId = "";
-        if (!preserveStoredResult) clearPredictionResultState();
+        if (!preserveStoredResult) {
+            clearPredictionResultState();
+            clearObservationRuntime();
+        }
     }
 
     function clearPredictionResults() {
+        if (activeJobId || activeRequest || predictionStatus === "submitting") {
+            toast("Wait for or cancel the active prediction before clearing its previous result.");
+            return;
+        }
         removePredictionLayer(false, false);
         predictionStatus = "idle";
         predictionMessage = "";
         toast("Prediction results cleared.");
     }
 
-    function predictionResultFilePath() {
+    function predictionResultFilePath(jobId) {
         if (!qgisProject || !hasProject) return "";
         var baseFolder = String(qgisProject.homePath || "");
         if (!baseFolder && projectPath) {
@@ -1248,7 +1587,8 @@ Item {
         }
         if (!baseFolder) return "";
         var projectHash = DeepPipe.stableHash(currentProjectKey).toString(36);
-        return baseFolder + "/DeepPipe_prediction_latest_" + projectHash + ".geojson";
+        var jobHash = jobId ? "_" + DeepPipe.stableHash(String(jobId)).toString(36) : "";
+        return baseFolder + "/DeepPipe_prediction_latest_" + projectHash + jobHash + ".geojson";
     }
 
     function setPredictionOverlayWkts(renderer, wkts, crs) {
@@ -1323,7 +1663,7 @@ Item {
             unknown: 0,
             excluded: 0,
             selectedInlets: Math.max(0, Number(selectedCount || 0)),
-            threshold: Number(threshold || predictionConfig.classification_threshold)
+            threshold: Number(threshold || 0.5)
         };
         return true;
     }
@@ -1371,16 +1711,26 @@ Item {
 
     function restorePersistedPredictionResult() {
         var state = savedPredictionResultState();
-        if (!state || !state.path || !qgisProject) return false;
+        if (!state || !state.job_id || !qgisProject) return false;
         detachPredictionLayer();
-        if (!attachPersistentPredictionLayer(state.path, state)) {
-            clearPredictionResultState();
+        restoreObservationState(state);
+        lastCompletedJobId = String(state.job_id);
+        if (state.path && !attachPersistentPredictionLayer(state.path, state)) {
+            // Keep the input and observation draft even if a moved project has
+            // lost its result file. A field observation must not be discarded.
             iface.logMessage("DeepPipe Mobile could not restore the saved prediction result at " + state.path);
-            return false;
+            predictionMessage = "The saved result file is unavailable. Field observations are still saved; reconnect and update the prediction to rebuild it.";
+            predictionStatus = "succeeded";
+            return true;
         }
+        if (!state.path) predictionSummary = state.result_summary ||
+                { total: 0, predicted: 0, potential: 0, selectedInlets: Number(state.selected_count || 0) };
         predictionExportGeoJson = "";
         predictionStatus = "succeeded";
         predictionMessage = "Restored the latest saved prediction result for this project.";
+        if (resultWorkflowType !== "progressive") {
+            observationMessage = "This saved result used the previous workflow. Select inlets and run a new Progressive GNN prediction to add observations.";
+        }
         return true;
     }
 
@@ -1403,9 +1753,10 @@ Item {
         });
         if (decoratedCollection.features.length === 0) return false;
 
-        var requestedPath = predictionResultFilePath();
+        var requestedPath = predictionResultFilePath(jobId);
         if (!requestedPath) return false;
         var previousState = savedPredictionResultState();
+        var previousJobId = lastCompletedJobId;
         var stagingLayer = LayerUtils.memoryLayerFromJsonString(
                     "DeepPipe result staging",
                     JSON.stringify(decoratedCollection),
@@ -1434,11 +1785,14 @@ Item {
             threshold: Number(threshold || predictionConfig.classification_threshold),
             selected_count: Math.max(0, Number(selectedCount || 0))
         };
-        if (!attachPersistentPredictionLayer(savedPath, nextState)) return false;
+        if (!attachPersistentPredictionLayer(savedPath, nextState)) {
+            if (previousState && previousState.path) attachPersistentPredictionLayer(previousState.path, previousState);
+            lastCompletedJobId = previousJobId;
+            return false;
+        }
         predictionExportGeoJson = JSON.stringify(decoratedCollection);
         predictionExportCrs = crs;
         lastCompletedJobId = String(jobId || "");
-        savePredictionResultState(savedPath, jobId, threshold, selectedCount);
         return true;
     }
 
@@ -1562,7 +1916,7 @@ Item {
             return;
         }
         var path = "/api/jobs/jobs/" + encodeURIComponent(lastCompletedJobId) + "/download";
-        var url = DeepPipe.apiUrl(defaultApiBaseUrl, path);
+        var url = DeepPipe.apiUrl(resultApiBaseUrl || defaultApiBaseUrl, path);
         if (!url) {
             toast("The completed-job download URL is invalid.");
             return;
@@ -1599,8 +1953,12 @@ Item {
         }
 
         var selectedCount = selectedPoints.length;
-        var submittedThreshold = predictionConfig.classification_threshold;
+        var submittedThreshold = 0.5;
         var featureCollection = DeepPipe.featureCollectionFromPoints(selectedPoints, nodeIdField);
+        var submittedProjectKey = currentProjectKey;
+        var submittedProjectName = projectName;
+        var submittedNodeIdField = nodeIdField;
+        var submittedConfig = DeepPipe.normalizePredictionConfig(predictionConfig);
         var requestBody = DeepPipe.buildPredictionRequest(
                     featureCollection,
                     nodeIdField,
@@ -1612,6 +1970,7 @@ Item {
 
         sendApiRequest("POST", "/api/pred/pred_deep", requestBody, 60000,
                        function (ok, payload, status, message) {
+            if (submittedProjectKey !== currentProjectKey) return;
             if (!ok) {
                 predictionStatus = "failed";
                 predictionMessage = status === 0
@@ -1629,16 +1988,88 @@ Item {
             }
 
             activeJobId = jobId;
-            activeJobProjectKey = currentProjectKey;
-            activeJobProjectName = projectName;
+            activeJobProjectKey = submittedProjectKey;
+            activeJobProjectName = submittedProjectName;
             activeJobSelectedCount = selectedCount;
             activeJobThreshold = submittedThreshold;
+            activeJobInputNodes = featureCollection;
+            activeJobNodeIdField = submittedNodeIdField;
+            activeJobConfig = submittedConfig;
+            activeJobObservations = [];
+            activeJobParentId = "";
+            activeJobWorkflowType = "progressive";
+            activeJobApiBaseUrl = defaultApiBaseUrl;
+            activeJobCandidates = null;
             pollFailureCount = 0;
             predictionStatus = DeepPipe.normalizeJobStatus(payload.status || "queued");
             predictionMessage = "Prediction job " + activeJobId + " is queued. You can leave this panel; polling will resume after reopening the project.";
             apiConnectionStatus = "ok";
             apiConnectionMessage = "Connected · job accepted";
             persistActiveJob();
+            scheduleJobPoll(1200);
+        });
+    }
+
+    function updatePredictionFromObservations() {
+        if (!canUpdateObservations) return;
+        var parentId = lastCompletedJobId;
+        var submittedProjectKey = currentProjectKey;
+        var submittedProjectName = projectName;
+        var snapshot;
+        try {
+            snapshot = DeepPipe.normalizeObservations(observationDraft, resultInputNodes, resultNodeIdField);
+        } catch (error) {
+            observationMessage = String(error);
+            toast(observationMessage);
+            return;
+        }
+        var inputNodes = resultInputNodes;
+        var config = resultPredictionConfig;
+        var inputNodeField = resultNodeIdField;
+        var parentApiBaseUrl = resultApiBaseUrl || defaultApiBaseUrl;
+        var selectedCount = inputNodes.features.length;
+        persistObservationDraft();
+        refreshObservationReview(true);
+        predictionStatus = "submitting";
+        predictionMessage = "Updating Progressive GNN from " + snapshot.length + " field observation" +
+                (snapshot.length === 1 ? "" : "s") + "…";
+        sendApiRequestTo(parentApiBaseUrl, "POST", "/api/pred/jobs/" + encodeURIComponent(parentId) + "/refine",
+                       { observations: snapshot }, 60000, function (ok, payload, status, message) {
+            if (submittedProjectKey !== currentProjectKey || lastCompletedJobId !== parentId) return;
+            if (!ok) {
+                predictionStatus = "failed";
+                predictionMessage = status === 0
+                        ? "Update could not be confirmed and was not retried automatically, to avoid creating a duplicate job. " + message
+                        : message;
+                observationMessage = "The previous result and field observation draft have been preserved. " + predictionMessage;
+                toast(predictionMessage);
+                return;
+            }
+            var jobId = payload ? String(payload.task_id || payload.job_id || "") : "";
+            if (!jobId) {
+                predictionStatus = "failed";
+                predictionMessage = "The API accepted the update but did not return a task ID. The update was not retried automatically.";
+                toast(predictionMessage);
+                return;
+            }
+            activeJobId = jobId;
+            activeJobProjectKey = submittedProjectKey;
+            activeJobProjectName = submittedProjectName;
+            activeJobSelectedCount = selectedCount;
+            activeJobThreshold = 0.5;
+            activeJobInputNodes = inputNodes;
+            activeJobNodeIdField = inputNodeField;
+            activeJobConfig = config;
+            activeJobObservations = snapshot;
+            activeJobParentId = parentId;
+            activeJobWorkflowType = "progressive";
+            activeJobApiBaseUrl = parentApiBaseUrl;
+            activeJobCandidates = null;
+            pollFailureCount = 0;
+            predictionStatus = DeepPipe.normalizeJobStatus(payload.status || "queued");
+            predictionMessage = "Field observation update " + jobId + " is queued. The previous result remains available while it runs.";
+            persistActiveJob();
+            panelDrawer.close();
             scheduleJobPoll(1200);
         });
     }
@@ -1656,9 +2087,9 @@ Item {
             return;
         }
         var jobId = activeJobId;
-        sendApiRequest("GET", "/api/jobs/jobs/" + encodeURIComponent(jobId) + "/status", null, 30000,
+        sendJobApiRequest("GET", "/api/jobs/jobs/" + encodeURIComponent(jobId) + "/status", null, 30000,
                        function (ok, payload, status, message) {
-            if (!activeJobId || activeJobId !== jobId) return;
+            if (!activeJobMatchesProject(jobId)) return;
             if (!ok) {
                 pollFailureCount += 1;
                 predictionMessage = "Job " + jobId + " is still saved, but its status could not be refreshed: " + message;
@@ -1687,12 +2118,18 @@ Item {
         });
     }
 
+    function activeJobMatchesProject(jobId) {
+        return Boolean(activeJobId) && activeJobId === jobId &&
+                (activeJobProjectKey ? activeJobProjectKey === currentProjectKey
+                                     : activeJobProjectName === projectName);
+    }
+
     function fetchLiveResultFiles(jobId) {
         predictionStatus = "fetching";
         predictionMessage = "Prediction completed. Locating the pipe result…";
-        sendApiRequest("GET", "/api/jobs/jobs/" + encodeURIComponent(jobId) + "/files", null, 30000,
+        sendJobApiRequest("GET", "/api/jobs/jobs/" + encodeURIComponent(jobId) + "/files", null, 30000,
                        function (ok, payload, status, message) {
-            if (!activeJobId || activeJobId !== jobId) return;
+            if (!activeJobMatchesProject(jobId)) return;
             if (!ok) {
                 predictionMessage = "Job completed, but its result list is not available yet: " + message;
                 scheduleJobPoll(12000);
@@ -1705,7 +2142,25 @@ Item {
                 scheduleJobPoll(12000);
                 return;
             }
-            fetchLivePipeGeoJson(jobId, filename);
+            if (activeJobWorkflowType === "progressive") fetchLiveCandidates(jobId, filename);
+            else fetchLivePipeGeoJson(jobId, filename);
+        });
+    }
+
+    function fetchLiveCandidates(jobId, pipeFilename) {
+        predictionMessage = "Downloading all scored candidates for field review…";
+        var projectKey = currentProjectKey;
+        sendJobApiRequest("GET", "/api/jobs/jobs/" + encodeURIComponent(jobId) + "/geojson/Candidates.geojson",
+                       null, 45000, function (ok, payload, status, message) {
+            if (currentProjectKey !== projectKey || !activeJobMatchesProject(jobId)) return;
+            if (!ok || !payload || payload.type !== "FeatureCollection" || !Array.isArray(payload.features)) {
+                predictionMessage = "The job completed, but its candidate review data could not be downloaded: " +
+                        (message || "Invalid Candidates.geojson");
+                scheduleJobPoll(15000);
+                return;
+            }
+            activeJobCandidates = payload;
+            fetchLivePipeGeoJson(jobId, pipeFilename);
         });
     }
 
@@ -1713,8 +2168,8 @@ Item {
         predictionStatus = "fetching";
         predictionMessage = "Downloading " + filename + "…";
         var path = "/api/jobs/jobs/" + encodeURIComponent(jobId) + "/geojson/" + encodeURIComponent(filename);
-        sendApiRequest("GET", path, null, 45000, function (ok, payload, status, message) {
-            if (!activeJobId || activeJobId !== jobId) return;
+        sendJobApiRequest("GET", path, null, 45000, function (ok, payload, status, message) {
+            if (!activeJobMatchesProject(jobId)) return;
             if (!ok) {
                 predictionMessage = "Job completed, but the pipe layer could not be downloaded: " + message;
                 scheduleJobPoll(15000);
@@ -1726,20 +2181,17 @@ Item {
                 return;
             }
 
+            if (activeJobWorkflowType !== "progressive") {
+                // A pre-upgrade pending job still belongs to the old service.
+                // Preserve its historical display semantics when it completes.
+                payload.features.forEach(function (feature) {
+                    if (!feature.properties) feature.properties = {};
+                    feature.properties.workflow_type = "legacy";
+                });
+            }
             var result = DeepPipe.decorateLiveResult(payload, jobId, activeJobThreshold);
             var summary = DeepPipe.summarizeLiveResult(result, activeJobSelectedCount, activeJobThreshold);
-            if (summary.total === 0) {
-                removePredictionLayer(false, false);
-                lastCompletedJobId = jobId;
-                predictionSummary = summary;
-                predictionStatus = "succeeded";
-                predictionMessage = "Live API job " + jobId + " completed, but it returned no above-threshold GNN candidates with a final MST class.";
-                clearActiveJob();
-                toast("DeepPipe prediction completed with no returned pipes.");
-                return;
-            }
-
-            if (!createPredictionResultLayer(
+            if (summary.total > 0 && !createPredictionResultLayer(
                         result,
                         CoordinateReferenceSystemUtils.wgs84Crs(),
                         jobId,
@@ -1751,10 +2203,33 @@ Item {
                 return;
             }
 
+            // Commit the new result and review snapshot together only after its
+            // complete output was downloaded and the map layer was installed.
+            // A failed child leaves its parent's green result and draft intact.
+            if (summary.total === 0) detachPredictionLayer();
+            resultInputNodes = activeJobInputNodes;
+            resultCandidates = activeJobCandidates || ({ type: "FeatureCollection", features: [] });
+            resultNodeIdField = activeJobNodeIdField;
+            resultPredictionConfig = activeJobConfig;
+            resultWorkflowType = activeJobWorkflowType;
+            resultParentJobId = activeJobParentId;
+            resultApiBaseUrl = activeJobApiBaseUrl;
+            savedObservations = DeepPipe.normalizeObservations(activeJobObservations,
+                                                                resultInputNodes, resultNodeIdField);
+            observationDraft = JSON.parse(JSON.stringify(savedObservations));
+            observationHistory = [];
+            observationFirstNode = "";
+            refreshObservationReview(false);
+
             lastCompletedJobId = jobId;
             predictionSummary = summary;
+            savePredictionResultState(predictionResultPath, jobId, activeJobThreshold, activeJobSelectedCount);
             predictionStatus = "succeeded";
-            predictionMessage = "Live API job " + jobId + " added " + summary.predicted + " Predicted and " + summary.potential + " Potential pipe" + (summary.total === 1 ? "" : "s") + " to the map.";
+            predictionMessage = "Live API job " + jobId + " completed with " + summary.predicted +
+                    " predicted pipe" + (summary.predicted === 1 ? "" : "s") + ".";
+            if (summary.total === 0) predictionMessage += " No eligible connection was selected; review candidates and field observations to continue.";
+            if (resultWorkflowType !== "progressive") observationMessage =
+                    "This result used the previous workflow. Select inlets and run a new Progressive GNN prediction to add observations.";
             clearActiveJob();
             toast("DeepPipe live prediction is ready.");
         });
@@ -1764,11 +2239,14 @@ Item {
         if (!activeJobId) return;
         var jobId = activeJobId;
         jobPollTimer.stop();
+        // Poll/download GETs can be stopped safely. The accepted job ID is
+        // already persisted; cancellation never retries the original POST.
+        abandonActiveRequest();
         predictionStatus = "cancelling";
         predictionMessage = "Cancelling prediction job " + jobId + "…";
-        sendApiRequest("POST", "/api/jobs/jobs/" + encodeURIComponent(jobId) + "/cancel", null, 30000,
+        sendJobApiRequest("POST", "/api/jobs/jobs/" + encodeURIComponent(jobId) + "/cancel", null, 30000,
                        function (ok, payload, status, message) {
-            if (!activeJobId || activeJobId !== jobId) return;
+            if (!activeJobMatchesProject(jobId)) return;
             if (!ok || (payload && payload.error)) {
                 predictionStatus = "running";
                 predictionMessage = "Cancellation was not confirmed: " + (message || DeepPipe.apiErrorMessage(payload, status, "Unknown cancellation error"));
@@ -1778,6 +2256,7 @@ Item {
             predictionStatus = "cancelled";
             predictionMessage = String((payload && payload.message) || ("Prediction job " + jobId + " was cancelled."));
             clearActiveJob();
+            if (lastCompletedJobId) observationMessage = "Update cancelled. The previous result and field observation draft have been preserved.";
             toast(predictionMessage);
         });
     }
@@ -1830,7 +2309,10 @@ Item {
         }
 
         lastCompletedJobId = activeMockJobId;
+        clearObservationRuntime();
+        resultWorkflowType = "mock";
         predictionSummary = result.summary;
+        savePredictionResultState(predictionResultPath, activeMockJobId, 0.5, selectedPoints.length);
         predictionStatus = "succeeded";
         predictionMessage = "Deterministic mock network added to the map. No production model was called.";
         toast("DeepPipe mock prediction is ready.");
@@ -1848,9 +2330,16 @@ Item {
             panelDrawer.close();
             mockPredictionTimer.stop();
             jobPollTimer.stop();
+            if (activeJobId) persistActiveJob();
             abandonActiveRequest();
+            detachActiveJob();
             releasePointHandler();
             detachPredictionLayer();
+            clearObservationRuntime();
+            lastCompletedJobId = "";
+            predictionSummary = null;
+            predictionStatus = "idle";
+            predictionMessage = "";
             removeManagedRasterLayers();
             selectedFids = [];
             selectedPoints = [];
@@ -1992,8 +2481,15 @@ Item {
             predictionAttributeTable: plugin.predictionAttributeTable
             completedJobId: plugin.lastCompletedJobId
             predictionConfig: plugin.predictionConfig
-            maxSearchRadius: plugin.predictionConfig.max_search_radius
-            confidenceThreshold: plugin.predictionConfig.classification_threshold
+            confidenceThreshold: 0.5
+            observationRows: plugin.observationRows
+            observationDraft: plugin.observationDraft
+            observationCount: plugin.observationDraft.length
+            observationDirty: plugin.observationDirty
+            observationMessage: plugin.observationMessage
+            observationSelectionActive: plugin.interactionMode === "observation_pair"
+            observationFirstNode: plugin.observationFirstNode
+            canUpdateObservations: plugin.canUpdateObservations
             assessmentLocationLabel: plugin.assessmentLocationLabel
             assessmentStatus: plugin.assessmentStatus
             assessmentMessage: plugin.assessmentMessage
@@ -2043,6 +2539,15 @@ Item {
                 panelDrawer.close();
                 plugin.focusPredictionResult(rowIndex);
             }
+            onObservationRequested: function (nodeU, nodeV, state) {
+                plugin.changeObservation(nodeU, nodeV, state);
+            }
+            onAddObservationPairRequested: plugin.startObservationPairSelection()
+            onFinishObservationSelectionRequested: plugin.finishMapInteraction()
+            onUndoObservationRequested: plugin.undoObservation()
+            onResetObservationsRequested: plugin.replaceObservationDraft(plugin.savedObservations)
+            onClearObservationsRequested: plugin.replaceObservationDraft([])
+            onUpdateObservationsRequested: plugin.updatePredictionFromObservations()
             onPickAssessmentLocationRequested: plugin.startAssessmentLocationSelection()
             onUseGnssRequested: plugin.useCurrentGnssLocation()
             onRasterInputsRequested: function (gauge, materialId, minimumYears) {
@@ -2064,7 +2569,8 @@ Item {
         id: mapInteractionOverlay
         parent: mapCanvas ? mapCanvas : plugin
         anchors.fill: parent
-        visible: interactionMode === "select_inlets" || interactionMode === "assessment_location"
+        visible: interactionMode === "select_inlets" || interactionMode === "assessment_location" ||
+                 interactionMode === "observation_pair"
         enabled: visible
         z: 9999
 
@@ -2090,6 +2596,8 @@ Item {
                 var screenPoint = Qt.point(mouse.x, mouse.y);
                 if (interactionMode === "assessment_location") {
                     handleAssessmentMapTap(screenPoint);
+                } else if (interactionMode === "observation_pair") {
+                    handleObservationMapTap(screenPoint);
                 } else if (inletSelectionMode === "tap") {
                     handleInletMapTap(screenPoint);
                 }
@@ -2195,6 +2703,79 @@ Item {
                     enabled: selectedPoints.length > 0
                     onClicked: clearSelectedInlets()
                 }
+            }
+        }
+    }
+
+    Rectangle {
+        id: predictionProgressBar
+        parent: mainWindow ? mainWindow.contentItem : plugin
+        visible: hasProject && interactionMode === "idle" &&
+                 (predictionStatus === "submitting" || predictionStatus === "queued" ||
+                  predictionStatus === "running" || predictionStatus === "fetching" ||
+                  predictionStatus === "cancelling")
+        z: 9998
+        height: 96
+        width: parent ? Math.min(parent.width - 20, 600) : 360
+        x: parent ? (parent.width - width) / 2 : 10
+        y: parent ? parent.height - height - 14 : 620
+        radius: 16
+        color: "#F7FBF9"
+        border.color: "#96C9B9"
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 10
+            spacing: 10
+            BusyIndicator {
+                Layout.preferredWidth: 40
+                Layout.preferredHeight: 40
+                running: predictionProgressBar.visible
+            }
+            Text {
+                Layout.fillWidth: true
+                text: predictionMessage
+                wrapMode: Text.WordWrap
+                maximumLineCount: 3
+                elide: Text.ElideRight
+                color: "#17332E"
+                font.pixelSize: 13
+            }
+            Button {
+                text: "Details"
+                Layout.preferredHeight: 48
+                onClicked: panelDrawer.open()
+            }
+        }
+    }
+
+    Rectangle {
+        id: observationSelectionBar
+        parent: mainWindow ? mainWindow.contentItem : plugin
+        visible: interactionMode === "observation_pair"
+        z: 10000
+        height: 94
+        width: parent ? Math.min(parent.width - 20, 600) : 360
+        x: parent ? (parent.width - width) / 2 : 10
+        y: parent ? parent.height - height - 14 : 620
+        radius: 18
+        color: "#eff6ff"
+        border.color: "#075985"
+        RowLayout {
+            anchors.fill: parent
+            anchors.margins: 10
+            spacing: 8
+            Text {
+                Layout.fillWidth: true
+                text: observationFirstNode ? "First inlet: " + observationFirstNode + "\nTap the second input inlet to confirm a connection."
+                                           : "Tap the first original input inlet.\nThen tap a second inlet to confirm a connection."
+                wrapMode: Text.Wrap
+                color: "#075985"
+                font.pixelSize: 15
+            }
+            Button {
+                Layout.preferredHeight: 50
+                text: "Cancel"
+                onClicked: cancelMapInteraction()
             }
         }
     }

@@ -7,16 +7,17 @@
 
 function predictionDefaults() {
     return {
-        model_type: "gnn",
-        max_search_radius: 500,
-        road_half_width_ft: 100,
-        k_neighbors: 12,
-        classification_threshold: 0.85,
-        threshold_tolerance: 0.3,
-        with_mst: true,
-        prob_weight: 0.5,
-        elev_weight: 0.0,
-        length_weight: 0.5
+        workflow_type: "progressive",
+        model_type: "progressive_gnn",
+        // Display compatibility only. Progressive selection is done by the API.
+        classification_threshold: 0.5,
+        progressive_config: {
+            neighbors_per_sector: 2,
+            knn_k: 12,
+            knn_max_distance_ft: 250,
+            rounds: 3,
+            use_msf: true
+        }
     };
 }
 
@@ -30,33 +31,17 @@ function asFiniteNumber(value, fallback) {
 }
 
 function normalizePredictionConfig(input) {
-    var source = input || {};
+    var source = input && input.progressive_config || {};
     var defaults = predictionDefaults();
-    var requestedModel = String(source.model_type || defaults.model_type).toLowerCase();
-    var config = {
-        model_type: ["gnn", "mlp"].indexOf(requestedModel) >= 0 ? requestedModel : defaults.model_type,
-        max_search_radius: clamp(asFiniteNumber(source.max_search_radius, defaults.max_search_radius), 100, 1500),
-        road_half_width_ft: clamp(Math.max(0, asFiniteNumber(source.road_half_width_ft, defaults.road_half_width_ft)), 0, 500),
-        k_neighbors: Math.round(clamp(asFiniteNumber(source.k_neighbors, defaults.k_neighbors), 3, 20)),
-        classification_threshold: clamp(asFiniteNumber(source.classification_threshold, defaults.classification_threshold), 0.51, 0.99),
-        threshold_tolerance: clamp(asFiniteNumber(source.threshold_tolerance, defaults.threshold_tolerance), 0, 0.5),
-        with_mst: source.with_mst === undefined ? defaults.with_mst : Boolean(source.with_mst),
-        prob_weight: Math.max(0, asFiniteNumber(source.prob_weight, defaults.prob_weight)),
-        elev_weight: Math.max(0, asFiniteNumber(source.elev_weight, defaults.elev_weight)),
-        length_weight: Math.max(0, asFiniteNumber(source.length_weight, defaults.length_weight))
+    var base = defaults.progressive_config;
+    defaults.progressive_config = {
+        neighbors_per_sector: Math.round(clamp(asFiniteNumber(source.neighbors_per_sector, base.neighbors_per_sector), 1, 8)),
+        knn_k: Math.round(clamp(asFiniteNumber(source.knn_k, base.knn_k), 1, 50)),
+        knn_max_distance_ft: clamp(asFiniteNumber(source.knn_max_distance_ft, base.knn_max_distance_ft), 1, 5000),
+        rounds: Math.round(clamp(asFiniteNumber(source.rounds, base.rounds), 1, 10)),
+        use_msf: typeof source.use_msf === "boolean" ? source.use_msf : base.use_msf
     };
-
-    var weightSum = config.prob_weight + config.elev_weight + config.length_weight;
-    if (!Number.isFinite(weightSum) || weightSum <= 0) {
-        config.prob_weight = defaults.prob_weight;
-        config.elev_weight = defaults.elev_weight;
-        config.length_weight = defaults.length_weight;
-    } else if (Math.abs(weightSum - 1) > 0.000001) {
-        config.prob_weight = config.prob_weight / weightSum;
-        config.elev_weight = config.elev_weight / weightSum;
-        config.length_weight = config.length_weight / weightSum;
-    }
-    return config;
+    return defaults;
 }
 
 function isValidNodeId(value) {
@@ -128,22 +113,189 @@ function predictionResultState(text, projectPath, projectName) {
     return state && typeof state === "object" && !Array.isArray(state) ? state : null;
 }
 
+function cloneJson(value) {
+    return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+}
+
 function updatePredictionResultState(text, projectPath, projectName, state) {
     var resultsByProject = parseProjectMappings(text);
     var key = projectKey(projectPath, projectName);
-    if (!state || !String(state.path || "").trim()) {
+    if (!state || (!String(state.path || "").trim() && !String(state.job_id || "").trim())) {
         delete resultsByProject[key];
         return JSON.stringify(resultsByProject);
     }
-    resultsByProject[key] = {
-        path: String(state.path),
+    var workflow = String(state.workflow_type || (state.input_nodes ? "progressive" : "legacy"));
+    var saved = {
+        schema_version: 2,
+        path: String(state.path || ""),
         layer_name: String(state.layer_name || "DeepPipe Prediction Results"),
         job_id: String(state.job_id || ""),
+        parent_job_id: String(state.parent_job_id || ""),
         threshold: asFiniteNumber(state.threshold, predictionDefaults().classification_threshold),
         selected_count: Math.max(0, Math.round(asFiniteNumber(state.selected_count, 0))),
-        saved_at: String(state.saved_at || new Date().toISOString())
+        saved_at: String(state.saved_at || new Date().toISOString()),
+        prediction_config: workflow === "progressive" ? normalizePredictionConfig(state.prediction_config) : cloneJson(state.prediction_config || null),
+        node_id_field: String(state.node_id_field || "node_id"),
+        api_base_url: normalizeApiBaseUrl(state.api_base_url),
+        workflow_type: workflow
     };
+    ["input_nodes", "candidates", "input_points", "result_summary"].forEach(function (name) {
+        if (state[name] !== undefined) saved[name] = cloneJson(state[name]);
+    });
+    saved.observations = normalizeObservations(state.observations);
+    saved.draft_observations = normalizeObservations(state.draft_observations === undefined
+                                                    ? saved.observations : state.draft_observations);
+    resultsByProject[key] = saved;
     return JSON.stringify(resultsByProject);
+}
+
+// IDs are stringified exactly as the API does: numeric 7 and text "7" refer
+// to the same original node; leading zeroes and whitespace are preserved.
+function canonicalNodePair(nodeU, nodeV) {
+    if (!isValidNodeId(nodeU) || !isValidNodeId(nodeV)) {
+        throw new Error("Observation node IDs must be nonempty text or integers.");
+    }
+    var u = String(nodeU);
+    var v = String(nodeV);
+    if (u === v) throw new Error("A node cannot connect to itself: " + u + ".");
+    if (u > v) { var swap = u; u = v; v = swap; }
+    return { node_u: u, node_v: v, key: JSON.stringify([u, v]) };
+}
+
+function observationNodeIndex(nodes, nodeIdField) {
+    var result = Object.create(null);
+    var rows = Array.isArray(nodes) ? nodes : nodes && Array.isArray(nodes.features) ? nodes.features : [];
+    rows.forEach(function (node) {
+        var id = node && node.properties ? node.properties[String(nodeIdField || "node_id")]
+               : node && node.nodeId !== undefined ? node.nodeId : node;
+        if (!isValidNodeId(id)) throw new Error("Original input contains an invalid node ID.");
+        var key = String(id);
+        if (result[key] !== undefined) throw new Error("Original input contains duplicate node ID: " + key + ".");
+        result[key] = node;
+    });
+    return result;
+}
+
+function normalizeObservations(input, nodes, nodeIdField) {
+    if (input === undefined || input === null) input = [];
+    if (!Array.isArray(input)) throw new Error("Observations must be a list of node pairs and states.");
+    var known = nodes === undefined || nodes === null ? null : observationNodeIndex(nodes, nodeIdField);
+    var pairs = Object.create(null);
+    input.forEach(function (item) {
+        if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error("Each observation needs node_u, node_v, and state.");
+        var pair = canonicalNodePair(item.node_u, item.node_v);
+        if (item.state !== "connected" && item.state !== "disconnected") throw new Error("Observation state must be connected or disconnected.");
+        if (known && (known[pair.node_u] === undefined || known[pair.node_v] === undefined)) {
+            throw new Error("Observation refers to an unknown original node.");
+        }
+        if (pairs[pair.key] && pairs[pair.key].state !== item.state) throw new Error("A connection cannot be both confirmed and rejected.");
+        pairs[pair.key] = { node_u: pair.node_u, node_v: pair.node_v, state: item.state };
+    });
+    return Object.keys(pairs).sort().map(function (key) { return pairs[key]; });
+}
+
+function setObservation(snapshot, nodeU, nodeV, state, nodes, nodeIdField) {
+    var pair = canonicalNodePair(nodeU, nodeV);
+    if (["connected", "disconnected", "unknown"].indexOf(state) < 0) throw new Error("Choose connected, disconnected, or unknown.");
+    // Validate the target even when removing an observation.
+    if (nodes !== undefined && nodes !== null) {
+        var known = observationNodeIndex(nodes, nodeIdField);
+        if (known[pair.node_u] === undefined || known[pair.node_v] === undefined) throw new Error("Observation refers to an unknown original node.");
+    }
+    var next = normalizeObservations(snapshot, nodes, nodeIdField).filter(function (item) {
+        return canonicalNodePair(item.node_u, item.node_v).key !== pair.key;
+    });
+    if (state !== "unknown") next.push({ node_u: pair.node_u, node_v: pair.node_v, state: state });
+    return normalizeObservations(next, nodes, nodeIdField);
+}
+
+function observationState(snapshot, nodeU, nodeV) {
+    var pair = canonicalNodePair(nodeU, nodeV);
+    var rows = normalizeObservations(snapshot);
+    for (var i = 0; i < rows.length; i += 1) {
+        if (canonicalNodePair(rows[i].node_u, rows[i].node_v).key === pair.key) return rows[i].state;
+    }
+    return "unknown";
+}
+
+function resetObservations(saved) { return normalizeObservations(saved); }
+function clearObservations() { return []; }
+function observationsEqual(first, second) { return JSON.stringify(normalizeObservations(first)) === JSON.stringify(normalizeObservations(second)); }
+function undoObservation(history, current) {
+    var entries = Array.isArray(history) ? history.slice() : [];
+    return { observations: entries.length ? normalizeObservations(entries.pop()) : normalizeObservations(current), history: entries };
+}
+
+function observationFeatureCollection(nodes, snapshot, nodeIdField) {
+    var index = observationNodeIndex(nodes, nodeIdField);
+    var observations = normalizeObservations(snapshot, nodes, nodeIdField);
+    function coordinates(node) {
+        var position = node && node.geometry && node.geometry.type === "Point" ? node.geometry.coordinates
+                     : node && node.longitude !== undefined && node.latitude !== undefined ? [node.longitude, node.latitude]
+                     : node ? [node.x, node.y] : [];
+        if (!Array.isArray(position) || position.length < 2 || position[0] === null || position[1] === null ||
+                !Number.isFinite(Number(position[0])) || !Number.isFinite(Number(position[1]))) {
+            throw new Error("Observed connection needs valid original point geometry.");
+        }
+        return [Number(position[0]), Number(position[1])];
+    }
+    return {
+        type: "FeatureCollection",
+        crs: cloneJson(nodes && nodes.crs),
+        features: observations.map(function (item) {
+            var pair = canonicalNodePair(item.node_u, item.node_v);
+            return {
+                type: "Feature", id: pair.key,
+                properties: { edge_id: pair.key, node_u: pair.node_u, node_v: pair.node_v,
+                              state: item.state, observation: item.state === "connected" ? 1 : 0,
+                              effective_prob: item.state === "connected" ? 1 : 0 },
+                geometry: { type: "LineString", coordinates: [coordinates(index[pair.node_u]), coordinates(index[pair.node_v])] }
+            };
+        })
+    };
+}
+
+function createObservationEdge(nodes, nodeU, nodeV, state, nodeIdField) {
+    return observationFeatureCollection(nodes, [{node_u: nodeU, node_v: nodeV, state: state}], nodeIdField).features[0];
+}
+
+function observationRows(candidates, snapshot) {
+    var features = Array.isArray(candidates) ? candidates : candidates && Array.isArray(candidates.features) ? candidates.features : [];
+    var states = normalizeObservations(snapshot);
+    var stateIndex = Object.create(null);
+    states.forEach(function (item) { stateIndex[canonicalNodePair(item.node_u, item.node_v).key] = item.state; });
+    var rows = [];
+    var seen = Object.create(null);
+    features.forEach(function (feature) {
+        var p = feature && feature.properties || feature || {};
+        var pair = canonicalNodePair(p.node_u, p.node_v);
+        if (seen[pair.key]) return;
+        seen[pair.key] = true;
+        var probability = predictionModelProbability(p);
+        rows.push({ edge_id: pair.key, node_u: pair.node_u, node_v: pair.node_v,
+                    state: stateIndex[pair.key] || "unknown",
+                    selected: Number(p.class) === 1, model_prob: Number.isFinite(probability) ? probability : null });
+    });
+    states.forEach(function (item) {
+        var pair = canonicalNodePair(item.node_u, item.node_v);
+        if (!seen[pair.key]) rows.push({edge_id: pair.key, node_u: pair.node_u, node_v: pair.node_v,
+                                      state: item.state, selected: false, model_prob: null});
+    });
+    return rows;
+}
+
+function mergeObservationCandidates(candidates, nodes, snapshot, nodeIdField) {
+    var collection = cloneJson(candidates || {type: "FeatureCollection", features: []});
+    if (!Array.isArray(collection.features)) collection.features = [];
+    var existing = Object.create(null);
+    collection.features.forEach(function (feature) {
+        var p = feature.properties || {};
+        existing[canonicalNodePair(p.node_u, p.node_v).key] = true;
+    });
+    observationFeatureCollection(nodes, snapshot, nodeIdField).features.forEach(function (feature) {
+        if (!existing[feature.properties.edge_id]) collection.features.push(feature);
+    });
+    return collection;
 }
 
 function mergePointRecords(currentRecords, incomingRecords) {
@@ -171,15 +323,15 @@ function validateSelectedPoints(points) {
     var rows = Array.isArray(points) ? points : [];
     var errors = [];
     var warnings = [];
-    var seenIds = {};
-    var duplicateIds = {};
-    var seenCoordinates = {};
+    var seenIds = Object.create(null);
+    var duplicateIds = Object.create(null);
+    var seenCoordinates = Object.create(null);
     var duplicateCoordinateFids = [];
 
-    if (rows.length < 3) {
+    if (rows.length < 4) {
         errors.push({
             code: "TOO_FEW_INLETS",
-            message: "Select at least 3 valid inlet points."
+            message: "Select at least 4 valid inlet points."
         });
     }
 
@@ -402,11 +554,11 @@ function buildMockPrediction(points, inputConfig, jobId) {
     var excluded = 0;
 
     var features = edges.map(function (edge, index) {
-        var distanceRatio = clamp(edge.distance / config.max_search_radius, 0, 1.5);
+        var distanceRatio = clamp(edge.distance / config.progressive_config.knn_max_distance_ft, 0, 1.5);
         var pairKey = String(edge.from.nodeId) + "|" + String(edge.to.nodeId);
         var hashAdjustment = (stableHash(pairKey) % 9) / 100;
         var probability = clamp(0.96 - distanceRatio * 0.28 + hashAdjustment, 0.51, 0.98);
-        var withinRadius = edge.distance <= config.max_search_radius;
+        var withinRadius = edge.distance <= config.progressive_config.knn_max_distance_ft;
         var modelClass = withinRadius && probability >= config.classification_threshold ? 1 : 0;
         var resultType = modelClass === 1 ? "predicted" : "excluded";
         if (modelClass === 1) {
@@ -469,18 +621,15 @@ function buildPredictionRequest(featureCollection, nodeIdField, inputConfig, con
     var config = normalizePredictionConfig(inputConfig);
     return {
         nodes: featureCollection,
-        model_type: config.model_type,
         node_id_field: String(nodeIdField || "node_id"),
-        max_search_radius: config.max_search_radius,
-        road_half_width_ft: config.road_half_width_ft,
-        k_neighbors: config.k_neighbors,
-        classification_threshold: config.classification_threshold,
-        threshold_tolerance: config.threshold_tolerance,
-        with_mst: config.with_mst,
-        prob_weight: config.prob_weight,
-        elev_weight: config.elev_weight,
-        length_weight: config.length_weight
+        workflow_type: "progressive",
+        model_type: "progressive_gnn",
+        progressive_config: cloneJson(config.progressive_config)
     };
+}
+
+function buildRefinementRequest(observations, nodes, nodeIdField) {
+    return { observations: normalizeObservations(observations, nodes, nodeIdField) };
 }
 
 function normalizeApiBaseUrl(value) {
@@ -627,40 +776,50 @@ function predictionNumericProperty(properties, names) {
 
 function predictionResultType(feature, threshold) {
     var properties = feature && feature.properties ? feature.properties : {};
-    var numericThreshold = Number(threshold);
-    var probability = predictionNumericProperty(properties, ["prob", "probability", "score"]);
-    var modelClass = predictionNumericProperty(properties, ["model_class"]);
-
-    // Potential means a GNN-positive candidate that met the submitted
-    // probability threshold but was not retained by the final MST result. A
-    // below-threshold or model-negative candidate must never be presented as
-    // Potential.
-    if (Number.isFinite(numericThreshold) &&
-            (!Number.isFinite(probability) || probability < numericThreshold)) return "excluded";
-    if (Number.isFinite(modelClass) && modelClass !== 1) return "excluded";
-
-    var classValue = properties.class;
-    if (classValue !== undefined && classValue !== null && classValue !== "") {
-        var normalizedClass = Number(classValue);
-        if (Number.isFinite(normalizedClass)) {
-            if (normalizedClass === 1) return "predicted";
-            if (normalizedClass === 0) return "potential";
-            return "unknown";
-        }
+    // The API's class is the final constrained network selection. A confirmed
+    // pipe can have a low raw neural probability and must still be displayed.
+    var finalClass = predictionNumericProperty(properties, ["class"]);
+    if (finalClass === 1) return "predicted";
+    if (finalClass === 0) {
+        // Historical results can explicitly retain the previous display mode.
+        var legacy = properties.workflow_type === "legacy" || properties.analysis_mode === "legacy";
+        var probability = predictionNumericProperty(properties, ["prob", "probability", "score"]);
+        return legacy && Number(properties.model_class) === 1 && probability >= Number(threshold) ? "potential" : "excluded";
     }
-
     var explicitType = String(properties.deeppipe_outcome || properties.result_type || properties.display_class || "").toLowerCase();
-    if (["potential", "rejected", "class_0"].indexOf(explicitType) >= 0) {
-        return "potential";
-    }
-    if (["predicted", "positive", "accepted", "class_1"].indexOf(explicitType) >= 0) {
-        return "predicted";
-    }
-    if (["negative", "below_threshold", "excluded", "model_0"].indexOf(explicitType) >= 0) {
-        return "excluded";
-    }
-    if (explicitType === "unknown") return "unknown";
+    if (["predicted", "positive", "accepted", "class_1"].indexOf(explicitType) >= 0) return "predicted";
+    if (["potential", "rejected", "class_0", "negative", "below_threshold", "excluded", "candidate", "model_0"].indexOf(explicitType) >= 0) return "excluded";
     return "unknown";
+}
+
+function predictionModelProbability(properties) {
+    var source = properties || {};
+    if (source.model_prob !== undefined || source.neural_probability !== undefined) {
+        return predictionNumericProperty(source, ["model_prob", "neural_probability"]);
+    }
+    var observation = source.observation;
+    var state = source.observation_state || source.state;
+    if (observation === 0 || observation === 1 || observation === "connected" || observation === "disconnected" ||
+            state === "connected" || state === "disconnected") return NaN;
+    return predictionNumericProperty(source, ["prob", "probability", "score"]);
+}
+
+function effectivePredictionProperties(properties) {
+    var source = properties || {};
+    var copy = cloneJson(source);
+    var raw = predictionModelProbability(source);
+    if (Number.isFinite(raw)) copy.model_prob = raw;
+    var effective = predictionNumericProperty(source, ["effective_prob", "effective_probability", "prob", "probability", "score"]);
+    var observed = source.observation;
+    var state = source.observation_state || source.state;
+    if (observed === 1 || observed === "connected" || state === "connected") effective = 1;
+    if (observed === 0 || observed === "disconnected" || state === "disconnected") effective = 0;
+    if (Number.isFinite(effective)) {
+        copy.prob = effective;
+        copy.effective_prob = effective;
+        copy.effective_probability = effective;
+    }
+    return copy;
 }
 
 function predictionResultColor(resultType) {
@@ -683,7 +842,7 @@ function partitionPredictionResults(featureCollection, threshold) {
             properties: {}
         };
         if (feature.id !== undefined) copy.id = feature.id;
-        var properties = feature.properties || {};
+        var properties = effectivePredictionProperties(feature.properties || {});
         Object.keys(properties).forEach(function (key) { copy.properties[key] = properties[key]; });
         copy.properties.result_type = resultType;
         copy.properties.display_class = resultType;
@@ -726,7 +885,7 @@ function decorateLiveResult(featureCollection, jobId, threshold) {
             properties: {}
         };
         if (feature.id !== undefined) copy.id = feature.id;
-        var properties = feature.properties || {};
+        var properties = effectivePredictionProperties(feature.properties || {});
         Object.keys(properties).forEach(function (key) { copy.properties[key] = properties[key]; });
         copy.properties.job_id = String(jobId || "");
         copy.properties.analysis_mode = "live_api";
@@ -766,10 +925,13 @@ function predictionAttributeLabel(key) {
         deeppipe_outcome: "Outcome",
         node_u: "From inlet",
         node_v: "To inlet",
-        prob: "GNN probability",
+        prob: "Effective probability",
+        model_prob: "Model probability",
+        effective_prob: "Effective probability",
+        effective_probability: "Effective probability",
         probability: "GNN probability",
         length: "Length (ft)",
-        class: "MST final class",
+        class: "Final selected class",
         model_class: "GNN class"
     };
     return labels[key] || String(key || "");
@@ -779,7 +941,7 @@ function predictionAttributeTable(featureCollection) {
     var features = featureCollection && Array.isArray(featureCollection.features)
             ? featureCollection.features : [];
     var preferred = [
-        "__row", "deeppipe_outcome", "node_u", "node_v", "prob", "length",
+        "__row", "deeppipe_outcome", "node_u", "node_v", "model_prob", "prob", "length",
         "class", "model_class", "sample_id", "link_id", "job_id"
     ];
     var seen = {};

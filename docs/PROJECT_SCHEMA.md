@@ -1,35 +1,32 @@
-# DeepPipe QField project schema 1.0
+# DeepPipe QField project schema — v0.7.0
 
-## Runtime mapping
+## Project mapping and inlet identity
 
-Version 0.6.1 can be used from any QField project containing a point layer and a stable unique ID field. On an unconfigured project the user first chooses the layer in **Configuration**; only then is the ID-field chooser enabled and populated from that exact layer. Changing layers clears the prior field choice. After confirmation, the plugin stores the mapping in device-local settings keyed by the exact project path and layer ID. **Pipeline Prediction** automatically uses that configured layer. A title key is used only for a genuinely pathless project; two same-title project files do not share configuration. The plugin saves one latest-result GeoJSON in the project home folder and restores its map layer automatically; it does not rewrite or dirty the `.qgs`/`.qgz` file.
+Any QField project with an inlet point layer and a stable unique string/integer ID field can use the plugin. Configuration requires layer selection before its field list becomes available. Changing layers clears the field choice. Confirmed mapping is device-local and keyed by exact project path; only pathless projects use a title fallback. The plugin does not rewrite or dirty the project file.
 
-Prediction and PyPASS origins are built into the plugin. **Configuration** exposes a service-status card that checks both endpoints; users do not enter or persist API origins, and direct COG selection is not part of the mobile workflow. Prediction settings are stored locally per exact project alongside the mapping.
+Use a text UUID, such as `inlet_uuid`, with default `uuid('WithoutBraces')`, non-null/unique constraints, and **apply default on update** disabled. Keep it unchanged after creation. Provider FIDs can change across synchronization and are not operational node IDs. A separate `node_id` can remain the readable display value.
 
-For multiple users and offline synchronization, the recommended key is a text UUID field (for example `inlet_uuid`) with default expression `uuid('WithoutBraces')`, “apply default on update” disabled, and non-null/unique constraints. Do not use a provider FID as the operational inlet identity.
+The minimum live input is four selected points with a valid CRS and valid WGS84 transformation. Duplicate IDs block submission; duplicate coordinates produce a warning. Locally committed edits can be selected before synchronization. Production layers should use GeoPackage or an intentionally configured online provider; the demo uses GeoJSON for portability.
 
-## Optional project custom entries
+Recommended additional inlet fields include `captured_at`, `captured_by`, `survey_status`, `elevation`, and `source`.
 
-These entries preconfigure a team project but are no longer required for eligibility. A user can override the mapping locally on a device.
+## Optional QGIS project entries
 
-Scope: `DeepPipe`
+These entries prefill team setup; no enabled flag is required. Scope: `DeepPipe`.
 
-| Key | Type | Required | Meaning |
-|---|---|---:|---|
-| `enabled` | Boolean | Legacy | Read for backward compatibility only; it no longer gates the plugin. |
-| `schema_version` | String | No | Configuration schema; current value `1.0`. |
-| `inlet_layer` | String | No | Exact layer name used as a setup default. |
-| `node_id_field` | String | No | Stable unique string/integer identifier used as a setup default. |
-| `prediction_result_layer` | String | Production | Persistent predicted-pipe layer role. |
-| `assessment_layer` | String | Production | Persistent assessment layer role. |
-| `api_mode` | String | No | Optional test-project default: `live` or `mock`. Service origins remain plugin-owned. |
-
-Example project XML:
+| Key | Type | Meaning |
+|---|---|---|
+| `enabled` | Boolean | Legacy compatibility only; does not gate the plugin. |
+| `schema_version` | String | Optional project configuration schema, still `1.0`. |
+| `inlet_layer` | String | Exact inlet layer name. |
+| `node_id_field` | String | Stable unique inlet ID field. |
+| `api_mode` | String | Test mode `live` or `mock`; service origins are plugin-owned. |
+| `prediction_result_layer` | String | Optional production result-layer role. |
+| `assessment_layer` | String | Optional production assessment-layer role. |
 
 ```xml
 <properties>
   <DeepPipe>
-    <enabled type="bool">true</enabled>
     <schema_version type="QString">1.0</schema_version>
     <inlet_layer type="QString">Inlets</inlet_layer>
     <node_id_field type="QString">inlet_uuid</node_id_field>
@@ -38,49 +35,77 @@ Example project XML:
 </properties>
 ```
 
-## Inlet layer minimum contract
+Prediction is fixed to `https://eegs4y29nw3lws.charlotte.edu:8080/deeppipe/predapi`; PyPASS is fixed to `https://lab.yyworkshop.com`. They are checked through the Configuration status card, not project URL fields.
 
-- Geometry: point, valid CRS.
-- Node ID: non-null, unique, string or integer.
-- Locally committed field edits are eligible even before cloud synchronization.
-- Minimum submission: three selected points.
-- Duplicate coordinates produce a warning; duplicate IDs block submission.
+## Device-local prediction settings
 
-Recommended operational fields:
+Each project's service settings contain:
 
-| Field | Type | Purpose |
-|---|---|---|
-| `inlet_uuid` | Text | Recommended stable DeepPipe inlet ID for multi-user/offline collection. |
-| `node_id` | Text | Optional human-readable display or legacy ID. |
-| `captured_at` | DateTime | Field collection timestamp. |
-| `captured_by` | Text | Collector or device/user identity. |
-| `survey_status` | Text | Draft, surveyed, needs review. |
-| `elevation` | Decimal | Survey/GNSS elevation if collected. |
-| `source` | Text | QField, authoritative import, legacy, etc. |
+```json
+{
+  "prediction_config": {
+    "workflow_type":"progressive",
+    "model_type":"progressive_gnn",
+    "classification_threshold":0.5,
+    "progressive_config": {
+      "neighbors_per_sector":2,
+      "knn_k":12,
+      "knn_max_distance_ft":250,
+      "rounds":3,
+      "use_msf":true
+    }
+  }
+}
+```
 
-The demo uses GeoJSON for portability. Real deployments should use GeoPackage or an intentionally configured online provider.
+The internal fixed threshold is retained for display compatibility and is not sent in new Progressive requests. The nested settings are normalized and copied independently. Legacy GNN/MLP threshold/MST weight settings migrate to Progressive defaults.
 
-## Production predicted-pipe fields
+## Saved result state, schema 2
 
-At minimum:
+A result record is keyed by exact project identity and retains:
 
-- `pipe_id`, `job_id`, `node_u`, `node_v`
-- `prob`, `model_class`, `class`
-- `length`, `slope`, `elev_diff`
-- `model_version`, `created_at`
-- `deeppipe_outcome`: predicted / potential
-- `deeppipe_color`: normalized display-color hint
-- `review_status`: unreviewed / accepted / rejected / needs_survey
-- `reviewed_by`, `reviewed_at`, `review_note`
+| Field | Meaning |
+|---|---|
+| `schema_version` | `2`, independent of QGIS project-entry schema 1.0. |
+| `path`, `layer_name` | Latest-result GeoJSON and managed layer name; path may be empty for a successful empty graph. |
+| `job_id`, `parent_job_id` | Completed result task and its refinement parent when applicable. |
+| `workflow_type` | Progressive versus historical provenance. |
+| `api_base_url` | Originating backend for this result; status, downloads, cancellation, and refinement stay pinned to it. |
+| `selected_count`, `threshold`, `saved_at` | Result context and save timestamp. |
+| `prediction_config`, `node_id_field` | Actual original-result configuration and ID mapping. |
+| `input_nodes` | Immutable original WGS84 FeatureCollection, independent of later source-layer edits or selection. |
+| `candidates` | Full scored candidate FeatureCollection, including unselected pairs. |
+| `observations` | Last successfully applied canonical observation snapshot. |
+| `draft_observations` | Current editable snapshot; can differ from saved observations. |
+| `result_summary` | Summary retained even if the final network contains zero pipes. |
 
-## Production assessment fields
+Accepted pending tasks separately retain their task/project identity and originating API URL, original inputs, settings, node field, observation snapshot, and parent ID. Reopen resumes an accepted task; it never recreates a POST from a missing response. In-session undo history is not the persisted saved snapshot.
 
-At minimum:
+Historical state without a valid original Progressive input remains viewable/exportable and cannot enable observation refinement. It is not silently reclassified as Progressive.
 
-- `assessment_id`, `source_pipe_id`, `location_method`
-- `latitude`, `longitude`
-- `ph`, `resistivity_ohm_cm`, `chloride`
-- `material`, `gauge`, `nominal_diameter`, `estimated_life_years`
-- `analysis_version`, `assessed_at`, `assessed_by`
+## Observation schema
 
-Do not label a material “recommended” until cost and selection criteria have been defined and implemented.
+```json
+[
+  {"node_u":"uuid-a","node_v":"uuid-b","state":"connected"},
+  {"node_u":"uuid-b","node_v":"uuid-c","state":"disconnected"}
+]
+```
+
+Pairs are undirected and use original stable IDs. Canonical edge IDs encode the sorted pair as a JSON array string, avoiding delimiter ambiguity. Nonempty strings and integer IDs are accepted; booleans, fractional values, missing IDs, self-pairs, unknown original endpoints, and contradictory duplicate states are rejected. Numeric `7` and text `"7"` identify the same node; `"007"` remains distinct.
+
+Unknown is omitted, and an empty list clears all prior observations on the next update. Snapshots are complete replacements, not patches. Manually added pairs get actual line geometry from the immutable original points. Model probability can remain null/unscored until the server scores it; an effective 0/1 constraint must not be mislabeled as a model score.
+
+These settings/snapshots and result files are local to the device. They do not automatically become synchronized survey records in QFieldCloud.
+
+## Production result and assessment layers
+
+For deliberately configured persistent/synchronized pipe layers, consider:
+
+- `pipe_id`, `job_id`, `parent_job_id`, `node_u`, `node_v`, `edge_id`;
+- `model_prob` (raw), `prob`/`effective_prob` (effective), `class` (final selected state), and observation state;
+- `length`, `slope`, `elev_diff`, `model_version`, `created_at`;
+- `deeppipe_outcome=predicted`, `deeppipe_color=#005035` for current selected pipes;
+- `review_status`, `reviewed_by`, `reviewed_at`, `review_note` when an explicit review process is defined.
+
+Assessment layers can retain `assessment_id`, `source_pipe_id`, `location_method`, coordinates, soil values, material/gauge/diameter, estimated life, analysis version, timestamp, and reviewer identity. Do not label a material recommended without implemented selection criteria.

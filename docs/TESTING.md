@@ -1,144 +1,149 @@
-# DeepPipe Mobile 0.6.1 test matrix
+# DeepPipe Mobile v0.7.0 testing
 
-## Baseline
+Automated logic, native Qt UI, and mocked-host runtime checks are separate from physical QField validation. Do not report Android/iOS support as tested solely because the automated checks pass.
 
-- QField 4.2.10 “Coral Sea”.
-- One current Android phone and one current iPhone/iPad.
-- Included synthetic demo plus a copy of one real DeepPipe field project.
-- Portrait and landscape.
-- Wi-Fi, cellular, airplane mode, weak/intermittent connectivity, background/lock-screen resume.
+## Automated checks
 
-Use only synthetic/non-sensitive inlets against the current unauthenticated test API.
+```bash
+node tests/test_logic.mjs
+node tests/validate_source.mjs
+node tests/test_api_contract.mjs
+./scripts/test_qml.sh
+./build.sh
+```
 
-## Installation and project lifecycle
+- **Pure JavaScript:** Progressive defaults/payload and legacy-setting migration, stable IDs, complete observation snapshots, original-pair geometry, score preservation, undo/reset/clear, project isolation, saved drafts, and empty networks.
+- **Source/package:** metadata/version consistency, QML structure, Progressive controls and signal wiring, no legacy settings in new prediction requests, demo UUIDs, and ZIP integrity.
+- **Live contract:** health/OpenAPI, Progressive/refinement route and defaults, malformed submission validation that cannot queue a prediction, and PyPASS point/catalog/PNG responses. It does not enqueue a real prediction or refinement.
+- **Native Qt:** the actual panel with Qt Quick Controls, including setting interactions, observation choices, action signals, busy state, modal closure, and mobile-width layout.
+- **Mocked-host runtime:** the shipped main QML against explicit test-only QField/QGIS/geometry APIs, exercising submissions, complete-snapshot refinement, immutable input, result commit, cancellation/failure, project switching, and saved task/result state.
 
-| Test | Expected |
-|---|---|
-| Install `deeppipe-mobile-v0.6.1.zip` from HTTPS | Plugin appears as DeepPipe Mobile and can be enabled. |
-| Open QField with no project | Toolbar/panel stay safe and report that a project must be opened. |
-| Open a plain project with no point layer | Configuration explains that an inlet point layer is required; Assessment remains available once a map project is open. |
-| Open an unconfigured project with one/multiple point layers | No layer is silently selected; the ID-field control is disabled and says to select an inlet layer first. |
-| Choose inlet layer A | The ID-field control becomes enabled and lists only fields from layer A. |
-| Change from layer A to layer B | The prior ID choice clears, even when both layers contain a field named `id`; only layer B fields are listed. |
-| Confirm setup, close, and reopen | The same project mapping is restored on this device. |
-| Open Pipeline Prediction after setup | The configured inlet layer is shown in the selection instructions; no second layer chooser is present. |
-| Open demo project | `Inlets` and `inlet_uuid` resolve from project defaults. |
-| Switch to another ordinary project | Selection/result state clears; the other project gets its own mapping; a server job is not silently cancelled. |
-| Open two same-title projects at different paths | Their mappings, prediction settings, and pending jobs do not cross-contaminate. |
-| Configure prediction settings in project A, then open unconfigured project B | Project B uses the documented prediction defaults; no setting from project A remains. Reopening A restores only A's local settings. |
-| Open Pipeline Prediction with defaults | The Predict action is visible before optional settings; **Specify prediction settings** is closed. |
-| Expand/customize/reset prediction settings | Custom settings persist only for this project; reset restores the documented DeepPipe preset. |
-| Rename/remove the configured field | Configuration becomes actionable and blocks Prediction until a valid field is confirmed. |
-| Disable/re-enable plugin | No duplicate toolbar buttons or tap handlers after restart. |
-| Fresh install, before opening DeepPipe | One-finger map pan works immediately; the plugin does not reserve map taps while idle. |
-| Rotate with panel open | Drawer, selection bar, and action buttons remain usable. |
+The QML runner requires Qt 6.5+ and QtQuick, Controls, Layouts, Templates, QtTest, and QtQml.WorkerScript modules. Qt 6.8.2 is used for the local native harness. Set `QMLTESTRUNNER` if it is not on the standard path. `QT_QPA_PLATFORM=offscreen` and the software renderer are defaults. Runtime tests use a temporary source copy with declared host mocks; they do not load the QField/QGIS SDK, render real providers, use GNSS, or establish phone background/network behavior.
 
-## Touch inlet selection
+The live API script also needs certificate trust for its target origin. For the current self-signed deployment, configure Node's trust using the deployment certificate, for example with `NODE_EXTRA_CA_CERTS`, before running that check.
 
-| Test | Expected |
-|---|---|
-| Start selection | Drawer closes and bottom selection bar appears. |
-| Tap a point / tap it again | Exactly one inlet is added / removed. |
-| Dense points inside the tap tolerance | The nearest point is toggled. |
-| Switch to Box and drag a rectangle | All inlets intersecting the rectangle are added in one batch; map count updates once. |
-| Drag a tiny rectangle | Guidance appears; no accidental selection occurs. |
-| Repeat the same box | Existing inlets are not duplicated. |
-| Tap Visible | Every inlet in the current map view is added once. |
-| Select 100–500 points by Box/Visible | QField remains responsive and native selection updates as one batch. |
-| Switch back to Tap | Map taps work for individual corrections. |
-| Tap empty map | Guidance toast appears; count is unchanged. |
-| Rapid double tap | Handler throttles and QField remains responsive. |
-| Native selection exists first | Starting DeepPipe selection imports it. |
-| Local unsynchronized inlet | Saved local feature can be selected and submitted. |
-| Project CRS differs from inlet CRS | Tap hit-testing remains correct after `QgsPoint` screen-bound conversion and rectangle reprojection. |
-| Choose a non-point layer | It is absent from the inlet-layer chooser. |
+The separate opt-in test creates an initial prediction and two refinements, then deletes only its own jobs:
 
-Test both EPSG:4326 and a projected North Carolina inlet layer. The current hit rectangle is 16 logical pixels around the tap.
+```bash
+DEEPPIPE_RUN_LIVE_PREDICTION=1 node tests/test_live_progressive.mjs
+```
 
-## Validation and request snapshot
+It uses the ten synthetic demo points by default. `DEEPPIPE_API_BASE_URL`, `DEEPPIPE_LIVE_FIXTURE` (WGS84 GeoJSON), and `DEEPPIPE_LIVE_ID_FIELD` can select another controlled fixture and service. It verifies confirmation of a pair outside the original candidates, exclusion of an existing pipe, changes to unknown neural scores, and restoration of the original candidates/scores after an empty observation snapshot.
 
-| Case | Expected |
-|---|---|
-| Fewer than 3 points | Predict button remains disabled. |
-| Missing/empty node ID | Submission blocks with a feature-specific message. |
-| Duplicate node ID | Submission blocks; server-side silent dropping is avoided. |
-| UUID values from multiple offline users | Unique text UUIDs pass; duplicated UUIDs block submission. |
-| Invalid WGS84 transformation | Live submission blocks. |
-| Valid projected points | Request coordinates are transformed to `[longitude, latitude]` and CRS is `EPSG:4326`. |
-| Tap Predict twice quickly | Only one POST occurs; all busy states disable resubmission. |
+On 2026-10-29, the release checks passed with 44 native Qt cases (including test setup/teardown), pure-JS/source checks, and the live API contract. The opt-in workflow passed against the current server using the Portal's 50-node Raleigh fixture: 225 initial candidates, an added outside pair, an excluded existing pipe, 191 changed unknown scores, and restoration of the unconditioned baseline after clearing. All three test jobs were deleted. This checks constraint behavior and workflow integration; it does not measure prediction accuracy or replace a physical-device test.
 
-## Live Prediction API
+Build outputs are `dist/deeppipe-mobile-v0.7.0.zip` and byte-identical `dist/deeppipe-mobile-latest.zip`. The optional `DeepPipe_QField_API_Test_v0.7.0.zip` is a debugging bundle, not an app-wide plugin installer.
 
-1. Open **Configuration** and tap **Check API status**.
-2. Expect both Prediction and PyPASS to show `Online` (the Prediction device text may change).
-3. Select one controlled synthetic group of at least three inlets and submit once.
-4. Record the task ID shown in the panel.
+## Physical-device setup required
+
+Use QField 4.2.10 or the deployment's supported current QField version on an Android phone and an iPhone/iPad. Record exact versions. Test portrait/landscape, Wi-Fi/cellular, loss of connectivity, and background/lock-screen resume. Start with the ten synthetic demo inlets; use non-sensitive controlled inputs for live server smoke tests.
+
+The release currently targets:
+
+- Installer: `https://eegs4y29nw3lws.charlotte.edu:8080/deeppipe/mobile/deeppipe-mobile-latest.zip`
+- Prediction: `https://eegs4y29nw3lws.charlotte.edu:8080/deeppipe/predapi`
+- PyPASS: `https://lab.yyworkshop.com`
+
+The campus host must be reachable from the phone's network. Its self-signed certificate requires device trust or a deployment proxy with a trusted certificate. Check actual QField HTTP/install behavior; browser success alone is insufficient. The older public lab `/predapi` service does not supply this Progressive workflow. Do not treat accepting unknown request fields as evidence that the model ran Progressive inference.
+
+## Install and project lifecycle
 
 | Test | Expected |
 |---|---|
-| Successful submit | HTTP 200 is treated as queued; task ID is displayed and persisted. |
-| Queued/running | Panel updates without blocking QField map use. |
-| Close/reopen same project | Saved task resumes polling; no second POST occurs. |
-| Background/lock phone | Polling resumes when QField becomes active again or project is reopened. |
-| Weak/temporary network loss | Task ID remains saved; GET polling backs off and retries. |
-| Submit response timeout | Plugin does not auto-retry POST and explains duplicate-job risk. |
-| Cancel active task | Only the stored task ID is cancelled; terminal status is shown. |
-| Successful non-empty result | Threshold-qualified `Pipes.geojson` features become one layer named `DeepPipe Prediction Results`; map overlays draw Predicted green and Potential yellow. |
-| Two or more pipes in the same outcome class | All remain visible as one `MULTILINESTRING` overlay; display does not depend on selecting a table row. |
-| Row highlight expires | The focused cyan highlight disappears, while the normal Predicted/Potential result remains visible. |
-| Toggle result in legend | The single result layer and both colored overlays turn off/on together. |
-| Run a second successful prediction | The prior result layer is removed, the same latest-result file is replaced, and exactly one result layer remains. |
-| Restart QField/reopen project | The latest saved result layer, colors, table, and completed job ID are restored automatically. |
-| Successful empty result | Success with 0 pipes; plugin does not try to create an empty memory layer. |
-| `Structures.geojson` exists but Pipes is missing | Plugin waits; it never loads Structures as a pipe layer. |
-| Remove result | The plugin-created layer disappears and is no longer restored for that project. |
-| Export result | Combined `DeepPipe_prediction_<job-id>.geojson` is written directly in the existing project folder (or device Documents fallback); geometry, CRS, outcome, and job fields survive a reload. |
-| Attribute table | **View result attribute table** and the map-actions result icon show every returned Predicted/Potential row and every property, with horizontal and vertical scrolling. Tapping a row closes the table, zooms to the pipe, selects it, and highlights it. |
-| Download complete job ZIP | Device browser opens `/api/jobs/jobs/{task_id}/download`; downloaded ZIP contains the server-provided Structures, Pipes, and log files. |
-| Potential outcomes present | Potential count is numeric, yellow Potential geometry is visible, and combined export retains `deeppipe_outcome=potential`. |
-| API 400/422/404/500 | FastAPI message is readable; no duplicate submission is attempted. |
+| Install the v0.7.0 direct ZIP and enable plugin | One DeepPipe toolbar entry; correct version. |
+| No project / project without point layers | Actionable setup guidance; no crash. |
+| Fresh ordinary project | No silent layer selection; ID field disabled until a layer is chosen. |
+| Change inlet layer A to B | Prior field choice clears, even for same-named fields. |
+| Confirm/reopen | Mapping and custom Progressive settings restore for that exact project. |
+| Open same-title projects at distinct paths | No mapping/configuration/result/draft/task leakage. |
+| Optional settings expand/reset | Defaults: direction 2, KNN 12, 250 ft, rounds 3, MSF on; no legacy threshold/weight controls. |
+| Rename/remove configured field | Prediction blocks until a valid mapping is confirmed. |
+| Disable/re-enable or rotate | No duplicate handlers/buttons; controls remain usable. |
+| Fresh install/idle | First-touch map panning works; no selection handler is registered while idle. |
+| Previous-version result | View/export works; observations require a fresh Progressive prediction. |
 
-Inspect live features for `job_id=<task-id>`, `analysis_mode=live_api`, and `review_status=unreviewed`. Confirm that every displayed feature meets the submitted threshold and has `model_class=1`; final `class=1` must be Predicted and `class=0` must be Potential. A job with no Potential feature must show `0`, not `—`.
-
-## Mock fallback
+## Inlet and observation map interaction
 
 | Test | Expected |
 |---|---|
-| Use a demo project with `api_mode=mock` | Header shows MOCK; Predict becomes local Preview. |
-| Same mock inputs/settings | Same topology/probabilities each run. |
+| Start inlet selection | Panel closes; Tap/Box/Visible toolbar appears. |
+| Tap point twice / tap empty map | Adds/removes once; empty taps only show guidance. |
+| Dense points | Nearest inlet within tap tolerance toggles. |
+| Box/Visible repeated | All matching inlets added once; no duplicates. |
+| Tiny box / rapid taps | Guidance/throttling; no accidental duplicate selection. |
+| 100–500 inlets via bulk selection | Responsive batching and native highlighting. |
+| Existing native selection / local unsynchronized point | Eligible saved features can be selected. |
+| Different project/inlet CRS | Tap/box hit tests and WGS84 submission remain correct. |
+| Missing/duplicate/invalid node IDs | Submission blocks with readable validation. |
+| Fewer than four points | Predict disabled. |
+| Finish any map interaction | Normal one-finger panning returns. |
+| Add confirmed pair | Two original input inlet picks create one blue confirmation; self-pair blocked. |
+| Source features moved, renamed, removed, or reselected after prediction | Pair picking/geometry still uses the original input snapshot. |
 
-## Live PyPASS point-based and raster-based queries
+Test both EPSG:4326 and a projected inlet layer. Provider FIDs must never replace the chosen stable UUID identity.
+
+## Progressive live prediction
+
+1. Check both services in Configuration.
+2. Select at least four synthetic inlets and submit once.
+3. Record task ID, endpoint, elapsed time, and model/workflow metadata from the server output.
 
 | Test | Expected |
 |---|---|
-| Pick a Wilmington-area map point | The panel returns and runs the live point query automatically; soil values and seven material rows are shown. |
-| Use a valid current GNSS location | The same point query runs automatically. |
-| Location with partial coverage | Null soil/material values display `Unavailable`; server warnings are visible. |
-| Inspect point gauge label | Gauge-dependent point results use the explicit documented gauge 16; hidden raster state cannot change them. |
-| Inspect language | Results are comparisons and never claim a recommended material. |
-| Choose a fixed raster material (for example RCP) | Gauge selector is disabled and says it is not applicable. |
-| Choose a gauge-dependent raster material | Gauge selector is enabled and only its advertised gauge values can be chosen. |
-| View service-life raster | Material, threshold, and required gauge are reflected in the layer name and tile URL; the prior managed raster is replaced and the drawer returns to the map. |
-| Clear prediction results | Current result layer, overlays, table, summary, completed-job reference, and saved restore state are cleared. |
-| View raster at regional zoom 5–6 and local zoom 7–19 | Tiles render across the supported zoom range. Transparent pixels mean no coverage or service life below the threshold. |
-| Inspect live tile requests | Encoded-dot soil and service-life paths return HTTP 200 and `image/png`; QField does not receive the portal's literal-`.png` 404 page. |
-| Add Aluminum/Aluminized CSP with gauge 18 | Catalog validation uses the material's advertised default gauge and reports the adjustment instead of requesting invalid tiles. |
-| Project switch/plugin unload | Plugin-created raster layers are removed cleanly. |
+| Inspect new request | `workflow_type=progressive`, `model_type=progressive_gnn`, correct nested configuration, WGS84 points. |
+| Tap Predict twice | One POST; busy controls block resubmission. |
+| Queued/running/fetching | Busy animation/messages update; accepted ID is retained. |
+| Reopen/background/network loss | Existing task resumes GET polling; no second POST. |
+| Change application default backend | Accepted task still polls/downloads/cancels against its saved origin. |
+| Ambiguous submit timeout | No automatic POST retry; readable status. |
+| Successful final result | One green final network with `class=1`; full Candidates available separately. |
+| Confirmed low model score | Selected green pipe remains present; raw score stays distinct from effective 1. |
+| Multiple pipes | All render without selecting a table row. |
+| Legend visibility | Result and green overlay toggle together. |
+| Next successful run | Replaces one latest layer/file, rather than accumulating layers. |
+| Successful empty network | Zero-pipe success with candidates and observation actions still available. |
+| Missing Pipes / Candidates retrieval fails | No substitute Structures layer or partial new-result commit. |
+| Reopen result | Layer, attributes, original inputs, settings, candidates, and saved/draft observations restore. |
+| Table/map toolbar action | All final attributes visible; tapping a row zooms/selects/highlights its pipe. |
+| Save/share GeoJSON and job ZIP | Geometry/CRS/IDs/scores remain intact; complete server files downloadable. |
+| Clear prediction results | Layer, table, saved restore state, result snapshots, and completed reference clear. |
 
-## Record during device testing
+## Observation refinement
 
-- QField/OS/device versions.
-- Project CRS, inlet CRS, inlet count, and selected count.
-- Health request result, submit-to-task-ID time, total job time, and result-layer load time.
-- Network transitions and whether recovery required user action.
-- Any QField log message, crash, duplicated request, wrong map position, clipped control, or lost task ID.
+| Test | Expected |
+|---|---|
+| Review candidates | Selected and unselected pairs visible with raw model scores; unscored remains unscored. |
+| Connected / Not connected / Unknown | Draft canonicalizes undirected pair; unknown removes its observation. |
+| Add missing confirmed pair | Original endpoint geometry shown; pair included in complete refine snapshot. |
+| Undo / Reset draft / Clear all | Undo last edit, restore applied snapshot, or clear all respectively. |
+| Update with empty snapshot | Sends `observations:[]` to remove prior constraints. |
+| Inspect refine POST | Parent-specific route; complete current snapshot, not an incremental patch. |
+| Configuration or selection changed after parent | Update retains parent's saved configuration/input; a new prediction is needed for new inputs/settings. |
+| Update while a table is open | Modals close; busy animation and blue/red-dashed constraints appear while waiting. |
+| Successful update | Confirmations selected green, rejected edges absent, new candidate scores available, temporary overlays hidden. |
+| Contradictory/crossing/cycle constraints | Readable server validation; previous result and draft remain. |
+| Cancel/error/transient download failure | Parent stays intact; no duplicate refine POST; draft remains available. |
+| Reopen accepted child task | Resume against saved backend with original inputs/configuration/snapshot. |
+| Project switch during request/selection | Old callbacks/picks cannot change the new project's state. |
 
-## Known limitations and stop conditions
+Do not require the server to connect every graph: hard observations, geometry, and candidate coverage can make that impossible. Confirm that no rejected edge is silently restored merely to force connectivity.
 
-- The current API advertises no authentication or task ownership. Do not use sensitive data.
-- `/health` proves only the web process responds; it is not a model/worker readiness guarantee.
-- Verify/fix server-side feet-based distance calculations for EPSG:4326 before interpreting model output.
-- One latest-result GeoJSON is persisted per project and restored by the plugin, but no automatic GeoPackage/QFieldCloud result sync exists yet.
-- Interactive project mappings are local to one device. Put optional DeepPipe defaults in the QGIS project when every team device should receive the same mapping.
-- Direct COG/GeoTIFF selection is intentionally out of scope for the mobile plugin; raster review uses the PyPASS XYZ catalog.
-- Exact green/yellow colors are supplied by non-interactive map overlays bound to one native-visible OGR layer's legend visibility. Persistent production layers should own their rule-based QGIS styles.
+## Unchanged PyPASS regression smoke
+
+| Test | Expected |
+|---|---|
+| Map/GNSS point query | Runs automatically, returns soil values and material comparisons. |
+| Partial coverage | Null soil/material values stay Unavailable; warnings visible. |
+| Point gauge | Gauge-dependent point values use 16; raster controls do not change the point result. |
+| Fixed/gauge-dependent raster material | Gauge disabled where inapplicable, otherwise valid catalog choices. |
+| View raster | Material/gauge/threshold reflected in name/URL; replaces prior managed raster and returns to map. |
+| Regional/local zoom | Hosted tiles render; transparency indicates coverage/threshold. |
+| Encoded-dot tile request | HTTP PNG response rather than the frontend's literal-dot routing response. |
+| Unsupported gauge | Advertised material default used with a message. |
+| Project switch/unload | Managed raster layers removed cleanly. |
+
+## Record and remaining limits
+
+Record device/OS/QField versions, project and layer CRS, stable ID field, input count, originating API, task/parent IDs, submit/result timing, network transitions, and any clipped controls or QField log errors. Verify physical gestures, map provider rendering, certificate trust, exports/share sheet, GNSS, restart, and background recovery on both platforms.
+
+Latest-result files and local mappings/configuration/observations are not automatically synchronized through QFieldCloud. Mock mode is a deterministic local preview, not proof of Progressive model/refinement behavior. Direct COG/GeoTIFF URL selection is outside this mobile workflow.

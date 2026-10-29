@@ -31,7 +31,15 @@ Item {
     property var predictionConfig: ({})
     property bool predictionSettingsExpanded: false
     property real maxSearchRadius: 500
-    property real confidenceThreshold: 0.85
+    property real confidenceThreshold: 0.5
+    property var observationRows: []
+    property var observationDraft: []
+    property int observationCount: 0
+    property bool observationDirty: false
+    property string observationMessage: ""
+    property bool observationSelectionActive: false
+    property string observationFirstNode: ""
+    property bool canUpdateObservations: false
     property string assessmentLocationLabel: "No location selected"
     property string assessmentStatus: "idle"
     property string assessmentMessage: "Choose a map or GNSS location."
@@ -49,7 +57,7 @@ Item {
     property string rasterMessage: "No PyPASS service-life raster is currently displayed."
     property var rasterLayerNames: []
     property string activeJobId: ""
-    property string pluginVersion: "0.6.1"
+    property string pluginVersion: "0.7.0"
 
     signal closeRequested()
     signal refreshProjectRequested()
@@ -68,6 +76,13 @@ Item {
     signal sharePredictionExportRequested()
     signal downloadPredictionZipRequested()
     signal predictionRowRequested(int rowIndex)
+    signal observationRequested(string nodeU, string nodeV, string state)
+    signal addObservationPairRequested()
+    signal finishObservationSelectionRequested()
+    signal undoObservationRequested()
+    signal resetObservationsRequested()
+    signal clearObservationsRequested()
+    signal updateObservationsRequested()
     signal pickAssessmentLocationRequested()
     signal useGnssRequested()
     signal rasterInputsRequested(int gauge, string materialId, int minimumYears)
@@ -103,7 +118,6 @@ Item {
     readonly property var passMaterialNames: ["RCP", "Cast Iron", "HDPE / PP / PVC", "Galvanized", "Aluminized CSP", "Aluminum", "Steel"]
     property var rasterGaugeOptions: []
     property bool rasterMaterialRequiresGauge: false
-    readonly property var neighborValues: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]
     readonly property var serviceLifeYearValues: [0, 10, 20, 30, 40, 50, 75, 100]
 
     function attributeCellText(value) {
@@ -196,36 +210,37 @@ Item {
         return Number(value).toFixed(1) + " yr";
     }
 
+    function progressiveConfig() {
+        return predictionConfig && predictionConfig.progressive_config ? predictionConfig.progressive_config : {};
+    }
+
     function requestPredictionSettings() {
         predictionSettingsRequested({
-            model_type: String(modelTypeBox.currentText || "GNN").toLowerCase(),
-            max_search_radius: distanceSlider.value,
-            classification_threshold: thresholdSlider.value,
-            threshold_tolerance: toleranceSlider.value,
-            road_half_width_ft: roadWidthSlider.value,
-            k_neighbors: Number(neighborsBox.currentText),
-            with_mst: mstSwitch.checked,
-            prob_weight: probabilityWeightSlider.value,
-            // Elevation is intentionally fixed at zero in the mobile preset.
-            // The API field remains present for contract compatibility, while
-            // users control only GNN probability and length weighting.
-            elev_weight: 0,
-            length_weight: lengthWeightSlider.value
+            workflow_type: "progressive",
+            model_type: "progressive_gnn",
+            progressive_config: {
+                neighbors_per_sector: sectorSpinBox.value,
+                knn_k: knnSpinBox.value,
+                knn_max_distance_ft: distanceSpinBox.value,
+                rounds: roundsSpinBox.value,
+                use_msf: msfSwitch.checked
+            }
         });
     }
 
     function predictionUsesDefaults() {
-        var config = predictionConfig || {};
-        return String(config.model_type || "gnn").toLowerCase() === "gnn" &&
-                Number(config.max_search_radius) === 500 &&
-                Number(config.classification_threshold) === 0.85 &&
-                Number(config.threshold_tolerance) === 0.3 &&
-                Number(config.road_half_width_ft) === 100 &&
-                Number(config.k_neighbors) === 12 &&
-                Boolean(config.with_mst) === true &&
-                Number(config.prob_weight) === 0.5 &&
-                Number(config.elev_weight) === 0 &&
-                Number(config.length_weight) === 0.5;
+        var config = progressiveConfig();
+        return Number(config.neighbors_per_sector === undefined ? 2 : config.neighbors_per_sector) === 2 &&
+                Number(config.knn_k === undefined ? 12 : config.knn_k) === 12 &&
+                Number(config.knn_max_distance_ft === undefined ? 250 : config.knn_max_distance_ft) === 250 &&
+                Number(config.rounds === undefined ? 3 : config.rounds) === 3 &&
+                (config.use_msf === undefined || config.use_msf === true);
+    }
+
+    function updateObservedPrediction() {
+        resultTablePopup.close();
+        observationReviewPopup.close();
+        updateObservationsRequested();
     }
 
     Rectangle {
@@ -557,12 +572,12 @@ Item {
                                         Layout.preferredWidth: countText.implicitWidth + 22
                                         Layout.preferredHeight: 30
                                         radius: 15
-                                        color: panel.selectedCount >= 3 ? "#DDF2EA" : "#EEF1F0"
+                                        color: panel.selectedCount >= 4 ? "#DDF2EA" : "#EEF1F0"
                                         Text {
                                             id: countText
                                             anchors.centerIn: parent
                                             text: panel.selectedCount + " selected"
-                                            color: panel.selectedCount >= 3 ? panel.success : panel.mutedInk
+                                            color: panel.selectedCount >= 4 ? panel.success : panel.mutedInk
                                             font.pixelSize: 12
                                             font.bold: true
                                         }
@@ -573,7 +588,7 @@ Item {
                                     text: panel.inletSelectionActive
                                           ? "Selection mode is active. Use Tap, Box, or Visible on the map, then press Done."
                                           : "Using " + (panel.inletLayerName || "the inlet layer configured in Configuration") +
-                                            ". Select individual inlets, drag a box around many points, or add every inlet currently visible. A minimum of three is required."
+                                            ". Select individual inlets, drag a box around many points, or add every inlet currently visible. A minimum of four is required."
                                     color: panel.mutedInk
                                     font.pixelSize: 13
                                     wrapMode: Text.WordWrap
@@ -645,7 +660,7 @@ Item {
                                     text: panel.selectedCount > 0
                                           ? (panel.mockMode ? "Preview pipes from " : "Predict pipes from ") + panel.selectedCount + " inlets"
                                           : "Select inlets to continue"
-                                    enabled: panel.projectReady && panel.selectedCount >= 3 && !panel.predictionBusy()
+                                    enabled: panel.projectReady && panel.selectedCount >= 4 && !panel.predictionBusy()
                                     font.bold: true
                                     palette.button: panel.primary
                                     palette.buttonText: "white"
@@ -667,214 +682,82 @@ Item {
                                     visible: panel.predictionSettingsExpanded
                                     spacing: 10
 
-                                Text { text: "Model"; color: panel.mutedInk; font.pixelSize: 12 }
-                                ComboBox {
-                                    id: modelTypeBox
+                                Text {
                                     Layout.fillWidth: true
-                                    implicitHeight: 50
-                                    model: ["GNN", "MLP"]
-                                    currentIndex: ["gnn", "mlp"].indexOf(String(panel.predictionConfig.model_type || "gnn").toLowerCase())
-                                    enabled: !panel.predictionBusy()
-                                    palette.text: panel.ink
-                                    palette.buttonText: panel.ink
-                                    palette.highlight: panel.charlotteGreen
-                                    palette.highlightedText: panel.quartzWhite
-                                    palette.base: panel.surface
-                                    palette.alternateBase: panel.canvas
-                                    contentItem: Text {
-                                        leftPadding: 14
-                                        rightPadding: 42
-                                        text: modelTypeBox.displayText
-                                        color: modelTypeBox.enabled ? panel.ink : panel.mutedInk
-                                        font.pixelSize: 14
-                                        verticalAlignment: Text.AlignVCenter
-                                    }
-                                    background: Rectangle {
-                                        radius: 8
-                                        color: modelTypeBox.enabled ? panel.surface : panel.disabledSurface
-                                        border.color: modelTypeBox.activeFocus ? panel.ninerGold : panel.divider
-                                        border.width: modelTypeBox.activeFocus ? 2 : 1
-                                    }
-                                    indicator: Text {
-                                        x: modelTypeBox.width - width - 14
-                                        y: (modelTypeBox.height - height) / 2
-                                        text: "▾"
-                                        color: modelTypeBox.enabled ? panel.charlotteGreen : panel.mutedInk
-                                        font.pixelSize: 16
-                                    }
-                                    onActivated: panel.requestPredictionSettings()
+                                    text: "Progressive GNN · Delaunay + KNN + four direction sectors"
+                                    color: panel.primary
+                                    font.pixelSize: 13
+                                    font.bold: true
+                                    wrapMode: Text.WordWrap
                                 }
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: "Maximum connection distance"
-                                        color: panel.ink
-                                        font.pixelSize: 14
-                                    }
-                                    Text {
-                                        text: Math.round(distanceSlider.value) + " ft"
-                                        color: panel.primary
-                                        font.pixelSize: 14
-                                        font.bold: true
-                                    }
-                                }
-                                Slider {
-                                    id: distanceSlider
-                                    Layout.fillWidth: true
-                                    from: 100
-                                    to: 1500
-                                    stepSize: 50
-                                    value: panel.predictionConfig.max_search_radius !== undefined
-                                           ? panel.predictionConfig.max_search_radius : panel.maxSearchRadius
-                                    enabled: !panel.predictionBusy()
-                                    implicitHeight: 44
-                                    onMoved: panel.requestPredictionSettings()
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text {
-                                        Layout.fillWidth: true
-                                        text: "Confidence threshold"
-                                        color: panel.ink
-                                        font.pixelSize: 14
-                                    }
-                                    Text {
-                                        text: thresholdSlider.value.toFixed(2)
-                                        color: panel.primary
-                                        font.pixelSize: 14
-                                        font.bold: true
-                                    }
-                                }
-                                Slider {
-                                    id: thresholdSlider
-                                    Layout.fillWidth: true
-                                    from: 0.51
-                                    to: 0.99
-                                    stepSize: 0.01
-                                    value: panel.predictionConfig.classification_threshold !== undefined
-                                           ? panel.predictionConfig.classification_threshold : panel.confidenceThreshold
-                                    enabled: !panel.predictionBusy()
-                                    implicitHeight: 44
-                                    onMoved: panel.requestPredictionSettings()
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text { Layout.fillWidth: true; text: "Threshold tolerance"; color: panel.ink; font.pixelSize: 14 }
-                                    Text { text: toleranceSlider.value.toFixed(2); color: panel.primary; font.pixelSize: 14; font.bold: true }
-                                }
-                                Slider {
-                                    id: toleranceSlider
-                                    Layout.fillWidth: true
-                                    from: 0
-                                    to: 0.5
-                                    stepSize: 0.05
-                                    value: panel.predictionConfig.threshold_tolerance !== undefined ? panel.predictionConfig.threshold_tolerance : 0.3
-                                    enabled: !panel.predictionBusy()
-                                    implicitHeight: 44
-                                    onMoved: panel.requestPredictionSettings()
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text { Layout.fillWidth: true; text: "Road half-width"; color: panel.ink; font.pixelSize: 14 }
-                                    Text { text: Math.round(roadWidthSlider.value) + " ft"; color: panel.primary; font.pixelSize: 14; font.bold: true }
-                                }
-                                Slider {
-                                    id: roadWidthSlider
-                                    Layout.fillWidth: true
-                                    from: 0
-                                    to: 500
-                                    stepSize: 25
-                                    value: panel.predictionConfig.road_half_width_ft !== undefined ? panel.predictionConfig.road_half_width_ft : 100
-                                    enabled: !panel.predictionBusy()
-                                    implicitHeight: 44
-                                    onMoved: panel.requestPredictionSettings()
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text { Layout.fillWidth: true; text: "Number of neighbors (k)"; color: panel.ink; font.pixelSize: 14 }
-                                    ComboBox {
-                                        id: neighborsBox
-                                        Layout.preferredWidth: 118
-                                        implicitHeight: 46
-                                        model: panel.neighborValues
-                                        currentIndex: Math.max(0, panel.neighborValues.indexOf(Number(panel.predictionConfig.k_neighbors || 12)))
+                                    Text { Layout.fillWidth: true; text: "Neighbors per direction"; color: panel.ink; font.pixelSize: 14; wrapMode: Text.WordWrap }
+                                    SpinBox {
+                                        id: sectorSpinBox
+                                        objectName: "progressiveSectorSpinBox"
+                                        from: 1; to: 8
+                                        value: panel.progressiveConfig().neighbors_per_sector === undefined ? 2 : panel.progressiveConfig().neighbors_per_sector
+                                        editable: true
                                         enabled: !panel.predictionBusy()
-                                        palette.text: panel.ink
-                                        palette.buttonText: panel.ink
-                                        palette.highlight: panel.charlotteGreen
-                                        palette.highlightedText: panel.quartzWhite
-                                        palette.base: panel.surface
-                                        contentItem: Text {
-                                            text: neighborsBox.displayText
-                                            color: neighborsBox.enabled ? panel.ink : panel.mutedInk
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            font.pixelSize: 14
-                                        }
-                                        background: Rectangle {
-                                            radius: 8
-                                            color: neighborsBox.enabled ? panel.surface : panel.disabledSurface
-                                            border.color: neighborsBox.activeFocus ? panel.ninerGold : panel.divider
-                                            border.width: neighborsBox.activeFocus ? 2 : 1
-                                        }
-                                        onActivated: panel.requestPredictionSettings()
+                                        onValueModified: panel.requestPredictionSettings()
                                     }
                                 }
                                 RowLayout {
                                     Layout.fillWidth: true
-                                    Text { Layout.fillWidth: true; text: "Enable MST post-processing"; color: panel.ink; font.pixelSize: 14 }
+                                    Text { Layout.fillWidth: true; text: "KNN neighbors (k)"; color: panel.ink; font.pixelSize: 14; wrapMode: Text.WordWrap }
+                                    SpinBox {
+                                        id: knnSpinBox
+                                        objectName: "progressiveKnnSpinBox"
+                                        from: 1; to: 50
+                                        value: panel.progressiveConfig().knn_k === undefined ? 12 : panel.progressiveConfig().knn_k
+                                        editable: true
+                                        enabled: !panel.predictionBusy()
+                                        onValueModified: panel.requestPredictionSettings()
+                                    }
+                                }
+                                Text { text: "KNN maximum distance (ft)"; color: panel.ink; font.pixelSize: 14 }
+                                SpinBox {
+                                    id: distanceSpinBox
+                                    objectName: "progressiveDistanceSpinBox"
+                                    Layout.fillWidth: true
+                                    from: 1; to: 5000
+                                    value: panel.progressiveConfig().knn_max_distance_ft === undefined ? 250 : panel.progressiveConfig().knn_max_distance_ft
+                                    editable: true
+                                    enabled: !panel.predictionBusy()
+                                    onValueModified: panel.requestPredictionSettings()
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "Distance uses US survey feet and limits the KNN candidates. Delaunay and directional candidates are also generated."
+                                    color: panel.mutedInk
+                                    font.pixelSize: 11
+                                    wrapMode: Text.WordWrap
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text { Layout.fillWidth: true; text: "Progressive GNN rounds"; color: panel.ink; font.pixelSize: 14; wrapMode: Text.WordWrap }
+                                    SpinBox {
+                                        id: roundsSpinBox
+                                        objectName: "progressiveRoundsSpinBox"
+                                        from: 1; to: 10
+                                        value: panel.progressiveConfig().rounds === undefined ? 3 : panel.progressiveConfig().rounds
+                                        editable: true
+                                        enabled: !panel.predictionBusy()
+                                        onValueModified: panel.requestPredictionSettings()
+                                    }
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Text { Layout.fillWidth: true; text: "Maximum spanning forest"; color: panel.ink; font.pixelSize: 14; wrapMode: Text.WordWrap }
                                     Switch {
-                                        id: mstSwitch
-                                        checked: panel.predictionConfig.with_mst !== undefined ? panel.predictionConfig.with_mst : true
+                                        id: msfSwitch
+                                        objectName: "progressiveMsfSwitch"
+                                        checked: panel.progressiveConfig().use_msf === undefined ? true : panel.progressiveConfig().use_msf
                                         enabled: !panel.predictionBusy()
-                                        Accessible.name: "Enable minimum spanning tree post-processing"
+                                        Accessible.name: "Enable maximum spanning forest post-processing"
                                         onClicked: panel.requestPredictionSettings()
                                     }
-                                }
-                                Text {
-                                    text: "Weighting (automatically normalized to 100%)"
-                                    color: panel.mutedInk
-                                    font.pixelSize: 12
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text { Layout.fillWidth: true; text: "GNN probability"; color: panel.ink; font.pixelSize: 13 }
-                                    Text { text: Math.round(probabilityWeightSlider.value * 100) + "%"; color: panel.primary; font.pixelSize: 13; font.bold: true }
-                                }
-                                Slider {
-                                    id: probabilityWeightSlider
-                                    Layout.fillWidth: true
-                                    from: 0
-                                    to: 1
-                                    stepSize: 0.05
-                                    value: panel.predictionConfig.prob_weight !== undefined ? panel.predictionConfig.prob_weight : 0.5
-                                    enabled: !panel.predictionBusy()
-                                    implicitHeight: 38
-                                    onMoved: panel.requestPredictionSettings()
-                                }
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    Text { Layout.fillWidth: true; text: "Length"; color: panel.ink; font.pixelSize: 13 }
-                                    Text { text: Math.round(lengthWeightSlider.value * 100) + "%"; color: panel.primary; font.pixelSize: 13; font.bold: true }
-                                }
-                                Slider {
-                                    id: lengthWeightSlider
-                                    Layout.fillWidth: true
-                                    from: 0
-                                    to: 1
-                                    stepSize: 0.05
-                                    value: panel.predictionConfig.length_weight !== undefined ? panel.predictionConfig.length_weight : 0.5
-                                    enabled: !panel.predictionBusy()
-                                    implicitHeight: 38
-                                    onMoved: panel.requestPredictionSettings()
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: "Default preset: GNN · k=12 · MST on · GNN probability 50% · length 50%."
-                                    color: panel.mutedInk
-                                    font.pixelSize: 12
-                                    wrapMode: Text.WordWrap
                                 }
                                 Button {
                                     Layout.fillWidth: true
@@ -884,6 +767,104 @@ Item {
                                     flat: true
                                     onClicked: panel.resetPredictionSettingsRequested()
                                 }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: 14
+                            Layout.rightMargin: 14
+                            Layout.preferredHeight: observationsColumn.implicitHeight + 28
+                            visible: panel.completedJobId.length > 0 || panel.observationRows.length > 0
+                            radius: 14
+                            color: panel.surface
+                            border.color: panel.divider
+                            ColumnLayout {
+                                id: observationsColumn
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.margins: 14
+                                spacing: 10
+                                Text { text: "3  Field observations"; color: panel.ink; font.pixelSize: 16; font.bold: true }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: "Confirm a connection in blue, or reject one with a red dashed line. Unknown removes your observation. The next prediction uses all current observations."
+                                    color: panel.mutedInk; font.pixelSize: 12; wrapMode: Text.WordWrap
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: panel.observationCount + " observed connection" + (panel.observationCount === 1 ? "" : "s") + (panel.observationDirty ? " · unapplied changes" : " · saved")
+                                    color: panel.observationDirty ? panel.warning : panel.primary
+                                    font.pixelSize: 13
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: panel.observationMessage
+                                    visible: text.length > 0
+                                    color: panel.mutedInk; font.pixelSize: 12; wrapMode: Text.WordWrap
+                                }
+                                Button {
+                                    objectName: "observationReviewButton"
+                                    Layout.fillWidth: true; implicitHeight: 48
+                                    text: "Review candidate connections (" + panel.observationRows.length + ")"
+                                    enabled: panel.observationRows.length > 0 && !panel.predictionBusy()
+                                    onClicked: observationReviewPopup.open()
+                                }
+                                Button {
+                                    objectName: "observationAddPairButton"
+                                    Layout.fillWidth: true; implicitHeight: 48
+                                    text: panel.observationSelectionActive ? "Return to connection selection" : "Add confirmed connection on map"
+                                    enabled: panel.canUpdateObservations && !panel.predictionBusy()
+                                    onClicked: panel.addObservationPairRequested()
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    visible: panel.observationSelectionActive
+                                    text: panel.observationFirstNode.length > 0 ? "First inlet: " + panel.observationFirstNode + ". Tap the second original inlet on the map." : "Tap two original inlets to confirm their connection."
+                                    color: panel.skyBlue; font.pixelSize: 12; wrapMode: Text.WordWrap
+                                }
+                                Button {
+                                    Layout.fillWidth: true; implicitHeight: 44
+                                    visible: panel.observationSelectionActive
+                                    text: "Finish connection selection"
+                                    enabled: !panel.predictionBusy()
+                                    onClicked: panel.finishObservationSelectionRequested()
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    Button {
+                                        objectName: "observationUndoButton"
+                                        Layout.fillWidth: true; implicitHeight: 44
+                                        text: "Undo"
+                                        enabled: !panel.predictionBusy()
+                                        onClicked: panel.undoObservationRequested()
+                                    }
+                                    Button {
+                                        objectName: "observationResetButton"
+                                        Layout.fillWidth: true; implicitHeight: 44
+                                        text: "Reset draft"
+                                        enabled: panel.observationDirty && !panel.predictionBusy()
+                                        onClicked: panel.resetObservationsRequested()
+                                    }
+                                }
+                                Button {
+                                    objectName: "observationClearButton"
+                                    Layout.fillWidth: true; implicitHeight: 44
+                                    text: "Clear all observations"
+                                    enabled: panel.observationCount > 0 && !panel.predictionBusy()
+                                    flat: true
+                                    onClicked: panel.clearObservationsRequested()
+                                }
+                                Button {
+                                    objectName: "observationUpdateButton"
+                                    Layout.fillWidth: true; implicitHeight: 54
+                                    text: panel.predictionBusy() ? "Updating prediction…" : "Update prediction from observations"
+                                    enabled: panel.canUpdateObservations && !panel.predictionBusy()
+                                    font.bold: true
+                                    palette.button: panel.primary; palette.buttonText: "white"
+                                    onClicked: panel.updateObservedPrediction()
                                 }
                             }
                         }
@@ -908,10 +889,18 @@ Item {
 
                                 RowLayout {
                                     Layout.fillWidth: true
+                                    BusyIndicator {
+                                        objectName: "predictionBusyIndicator"
+                                        Layout.preferredWidth: 28
+                                        Layout.preferredHeight: 28
+                                        visible: panel.predictionBusy()
+                                        running: visible
+                                    }
                                     Rectangle {
                                         Layout.preferredWidth: 10
                                         Layout.preferredHeight: 10
                                         radius: 5
+                                        visible: !panel.predictionBusy()
                                         color: panel.predictionStatusColor()
                                     }
                                     Text {
@@ -940,29 +929,21 @@ Item {
                                 }
                                 GridLayout {
                                     Layout.fillWidth: true
-                                    columns: 3
+                                    columns: 2
                                     visible: panel.predictionSummary !== null
                                     columnSpacing: 8
                                     rowSpacing: 4
 
                                     Text { text: "Selected"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: "Predicted"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
-                                    Text { text: "Potential"; color: panel.mutedInk; font.pixelSize: 11; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: panel.predictionSummary ? panel.predictionSummary.selectedInlets : "—"; color: panel.ink; font.pixelSize: 20; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
                                     Text { text: panel.predictionSummary ? panel.predictionSummary.predicted : "—"; color: panel.success; font.pixelSize: 20; font.bold: true; Layout.fillWidth: true; horizontalAlignment: Text.AlignHCenter }
-                                    Text {
-                                        text: panel.predictionSummary ? panel.predictionSummary.potential : "—"
-                                        color: panel.warning
-                                        font.pixelSize: 20
-                                        font.bold: true
-                                        Layout.fillWidth: true
-                                        horizontalAlignment: Text.AlignHCenter
-                                    }
+
                                 }
                                 Text {
                                     Layout.fillWidth: true
                                     visible: panel.predictionSummary !== null
-                                    text: "Predicted = above-threshold GNN candidates retained by MST. Potential = above-threshold GNN candidates not retained by MST."
+                                    text: "Green pipes are the final selected network, including confirmed connections. Review candidates to add field observations."
                                     color: panel.mutedInk
                                     font.pixelSize: 11
                                     wrapMode: Text.WordWrap
@@ -973,14 +954,12 @@ Item {
                                     spacing: 14
                                     Rectangle { Layout.preferredWidth: 18; Layout.preferredHeight: 6; radius: 3; color: panel.charlotteGreen }
                                     Text { text: "Predicted"; color: panel.ink; font.pixelSize: 12 }
-                                    Rectangle { Layout.preferredWidth: 18; Layout.preferredHeight: 6; radius: 3; color: "#F4C430" }
-                                    Text { text: "Potential"; color: panel.ink; font.pixelSize: 12; Layout.fillWidth: true }
                                 }
                                 Text {
                                     Layout.fillWidth: true
                                     text: panel.predictionResultLayer.length > 0
                                           ? "Map layer: " + panel.predictionResultLayer +
-                                            ". Its legend switch controls both colors; a new run replaces this layer."
+                                            ". Its legend switch controls the network; a successful update replaces this layer."
                                           : ""
                                     visible: text.length > 0
                                     color: panel.mutedInk
@@ -1012,7 +991,7 @@ Item {
                                 Text {
                                     Layout.fillWidth: true
                                     visible: !panel.mockMode && panel.completedJobId.length > 0
-                                    text: "The ZIP is supplied by the Prediction API and contains the job's Structures.geojson, Pipes.geojson, and log.txt files."
+                                    text: "The ZIP is supplied by the Prediction API and contains the job's input structures, final pipes, scored candidates, and log files."
                                     color: panel.mutedInk
                                     font.pixelSize: 11
                                     wrapMode: Text.WordWrap
@@ -1764,6 +1743,73 @@ Item {
     }
 
     Popup {
+        id: observationReviewPopup
+        objectName: "observationReviewPopup"
+        parent: panel.mainWindow && panel.mainWindow.contentItem ? panel.mainWindow.contentItem : panel
+        modal: true; focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        width: Math.min((parent ? parent.width : panel.width) - 16, 600)
+        height: Math.min((parent ? parent.height : panel.height) - 40, 680)
+        x: parent ? (parent.width - width) / 2 : 8
+        y: parent ? Math.max(8, (parent.height - height) / 2) : 8
+        background: Rectangle { radius: 16; color: panel.surface; border.color: panel.primary; border.width: 2 }
+        contentItem: ColumnLayout {
+            spacing: 10
+            RowLayout {
+                Layout.fillWidth: true
+                Text { Layout.fillWidth: true; text: "Candidate observations"; color: panel.ink; font.pixelSize: 17; font.bold: true }
+                Button { text: "Close"; onClicked: observationReviewPopup.close() }
+            }
+            Text {
+                Layout.fillWidth: true
+                text: "Includes selected and unselected candidates. Model scores are shown separately from your observations."
+                color: panel.mutedInk; font.pixelSize: 12; wrapMode: Text.WordWrap
+            }
+            ListView {
+                id: observationList
+                objectName: "observationList"
+                Layout.fillWidth: true; Layout.fillHeight: true
+                clip: true
+                model: panel.observationRows
+                spacing: 6
+                ScrollBar.vertical: ScrollBar {}
+                delegate: Rectangle {
+                    required property var modelData
+                    width: observationList.width
+                    height: 112
+                    radius: 8
+                    color: modelData.state === "connected" ? "#E7F2FC" : modelData.state === "disconnected" ? "#FCEDEC" : panel.canvas
+                    border.color: panel.divider
+                    ColumnLayout {
+                        anchors.fill: parent; anchors.margins: 10; spacing: 4
+                        Text {
+                            Layout.fillWidth: true
+                            text: String(modelData.node_u) + " ↔ " + String(modelData.node_v)
+                            color: panel.ink; font.bold: true; font.pixelSize: 13; elide: Text.ElideMiddle
+                        }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Text {
+                                Layout.fillWidth: true
+                                text: (modelData.selected ? "Selected" : "Unselected") + " · Model: " + (modelData.model_prob === null || modelData.model_prob === undefined ? "unscored" : (Number(modelData.model_prob) * 100).toFixed(1) + "%")
+                                color: panel.mutedInk; font.pixelSize: 11; wrapMode: Text.WordWrap
+                            }
+                            ComboBox {
+                                objectName: "observationStateBox"
+                                Layout.preferredWidth: 152
+                                model: ["Unknown", "Connected", "Not connected"]
+                                currentIndex: modelData.state === "connected" ? 1 : modelData.state === "disconnected" ? 2 : 0
+                                enabled: !panel.predictionBusy()
+                                onActivated: panel.observationRequested(String(modelData.node_u), String(modelData.node_v), ["unknown", "connected", "disconnected"][currentIndex])
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Popup {
         id: resultTablePopup
         parent: panel.mainWindow && panel.mainWindow.contentItem
                 ? panel.mainWindow.contentItem : panel
@@ -1831,8 +1877,6 @@ Item {
                     anchors.rightMargin: 10
                     Rectangle { Layout.preferredWidth: 18; Layout.preferredHeight: 6; radius: 3; color: panel.charlotteGreen }
                     Text { text: "Predicted"; color: panel.ink; font.pixelSize: 11 }
-                    Rectangle { Layout.preferredWidth: 18; Layout.preferredHeight: 6; radius: 3; color: "#F4C430" }
-                    Text { text: "Potential"; color: panel.ink; font.pixelSize: 11; Layout.fillWidth: true }
                 }
             }
 
@@ -2029,21 +2073,21 @@ Item {
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "Pipeline Prediction automatically uses the inlet layer saved in Configuration. Tap Select inlets on map. Tap an inlet to add or remove one; choose Box and drag a rectangle to add many; choose Visible to add all inlets in the current map view. Press Done when finished. At least three valid inlets are required."
+                        text: "Pipeline Prediction automatically uses the inlet layer saved in Configuration. Tap Select inlets on map. Tap an inlet to add or remove one; choose Box and drag a rectangle to add many; choose Visible to add all inlets in the current map view. Press Done when finished. At least four valid inlets are required."
                         color: panel.ink
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "Prediction settings start with GNN, 500 ft, confidence 0.85, k=12, MST enabled, and 50% GNN probability / 50% length weighting. You can adjust these values before running the prediction."
+                        text: "Progressive GNN starts with two neighbors per direction, KNN k=12 within 250 ft, three rounds, and maximum spanning forest enabled. Optional settings are saved for each project."
                         color: panel.ink
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: "Results show only GNN-positive pipes at or above the selected confidence threshold. Green Predicted pipes were retained by MST; yellow Potential pipes passed the GNN threshold but were not retained by MST. Use View result attribute table for every returned field, or Download complete job ZIP for the server files."
+                        text: "Green pipes are the final selected network. Review candidate connections to mark Connected, Not connected, or Unknown. Add a missing confirmed connection by picking two original inlets. Update prediction from observations sends the complete current observation set to the server; successful updates replace the final network. Undo and Reset draft help revise edits before updating."
                         color: panel.ink
                         font.pixelSize: 13
                         wrapMode: Text.WordWrap

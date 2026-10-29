@@ -1,77 +1,65 @@
-# Architecture
+# DeepPipe Mobile architecture — v0.7.0
 
-## Decision
+DeepPipe Mobile is one app-wide QField plugin with project-scoped configuration. It uses QField's native map, layers, selection, and GNSS rather than embedding the web portal.
 
-DeepPipe Mobile is one **app-wide QField plugin** with project-scoped configuration. The plugin supplies a consistent workflow across cities; each QGIS/QField project identifies its own inlet, pipe-result, assessment, and reference layers.
-
-Official references:
-
-- [QField plugin types and installation](https://docs.qfield.org/how-to/advanced-how-tos/plugins/)
-- [QField plugin API](https://api.qfield.org/)
-- [Official app-wide plugin template](https://github.com/opengisch/qfield-template-plugin)
-
-## Runtime boundaries
+## Boundaries
 
 ```text
-QField project
-  ├─ editable inlet layer
-  ├─ optional project defaults
-  └─ plugin-managed latest-result GeoJSON
-          │
-          ▼
-DeepPipe app-wide plugin
-  ├─ touch-first drawer
-  ├─ tap / box / visible-area selection
-  ├─ device-local per-project mapping
-  ├─ selection snapshot + validation
-  ├─ prediction / assessment state
-  └─ transport boundary
-          │
-          ├─ v0.6.0 live Prediction client + mock fallback
-          ├─ live PyPASS point-assessment client
-          └─ hosted PyPASS XYZ raster loader
-                         │
-                         ▼
-                DeepPipe / PyPASS APIs
+QField project inlet layer
+    → confirmed layer/ID mapping
+    → Tap / Box / Visible selection
+    → validated immutable WGS84 snapshot
+    → Progressive Prediction API
+    → full candidates + final pipes
+    → field observations → child refinement task
+    → latest green result layer + attribute table
 ```
 
-The plugin never embeds the existing React/Leaflet portal. QField remains the sole map canvas, selection interface, GNSS source, and project/layer manager.
+`main.qml` owns QField integration, task transport, map interaction, and project lifecycle. `DeepPipePanel.qml` presents controls and emits user-action signals. `logic/DeepPipe.js` contains QML-independent configuration, validation, observation normalization, result decoration, and storage helpers.
 
-## Mobile Prediction state
+Prediction uses the fixed `https://eegs4y29nw3lws.charlotte.edu:8080/deeppipe/predapi` origin, including `/deeppipe`. PyPASS uses `https://lab.yyworkshop.com`. The Configuration status card checks both; a health response is not a full worker/model readiness guarantee.
 
-1. Point layers are discovered in any open project. A valid saved device mapping or optional exact `DeepPipe` project entries can prefill Configuration. Otherwise the inlet layer begins unselected; only after the user chooses it does the plugin expose that layer's fields. Changing layers clears the prior ID field, including same-named fields such as `id`. **Pipeline Prediction** consumes the confirmed mapping directly and does not present a second layer chooser.
-2. Saved mappings and prediction settings are keyed by the exact project file path; each mapping also retains its selected layer ID. A project title is used only when the project truly has no path; different same-title project files never share state.
-3. User starts the explicit inlet-selection mode.
-4. The drawer closes. **Tap** toggles the nearest inlet in a 16-pixel search area, **Box** adds all inlets inside a dragged rectangle, and **Visible** adds all inlets in the current map view. Each action mirrors the batch snapshot to QGIS selection highlighting once.
-5. The snapshot is validated for count, node-ID validity/uniqueness, and geometry.
-6. Live mode transforms the snapshot to EPSG:4326 GeoJSON and submits it through QField's HTTP client; mock mode creates a deterministic local preview.
-7. Live mode persists the task ID, polls with network backoff/resume, then retrieves only the pipe-named GeoJSON.
-8. The backend's threshold-qualified GNN-positive features are normalized using final MST `class`: `class=1` becomes `predicted`, while `class=0` becomes `potential`. Below-threshold or model-negative records are excluded.
-9. The two outcomes are written into one deterministic latest-result GeoJSON in the project home folder. The prior managed result layer is detached before overwrite, one OGR layer named `DeepPipe Prediction Results` is added, and its path plus job metadata are stored per project. Project reopen reloads that file automatically; a later successful prediction replaces it.
-10. Two non-interactive `MULTILINESTRING` map geometry overlays render Predicted in Charlotte Green and Potential in yellow. Their visibility follows whether the single OGR result layer is present in `mapSettings.layers`, so the QField legend switch controls the colored geometry even though app-wide QML cannot mutate a categorized renderer. The native thin-line renderer remains visible beneath them as a fail-safe.
-11. The full-field attribute table is rebuilt from the persisted layer. A map-actions toolbar icon opens it without reopening the main drawer; tapping a row selects its feature, zooms to its reprojected bounding box, and highlights it. The completed task ID also supplies the server ZIP download URL.
+## New Prediction lifecycle
 
-The normalized export fields include `deeppipe_outcome` and `deeppipe_color`
-(`predicted`/`#005035` and `potential`/`#F4C430`). QField 4.2 does not expose
-vector-renderer mutation through its app-wide QML plugin API, so exact mobile
-colors are drawn as map overlays while a single native-visible OGR layer owns legend
-visibility, selection, and attributes. A production project can instead
-apply rule-based colors in pre-created persistent result layers.
+1. Discover point layers. Restore a valid device mapping or optional exact project defaults; otherwise require explicit layer-then-ID-field confirmation. Changing layers clears the previous field choice.
+2. Key settings and state by exact project path, falling back to title only for pathless projects. Same-title project files remain isolated.
+3. Enter inlet-selection mode. Tap toggles the nearest inlet, Box adds a rectangle, and Visible adds the current view. Batch actions update native selection once.
+4. Validate at least four points, stable unique IDs, and valid geometry. Transform the selected records to WGS84 and capture their original input snapshot.
+5. Submit only the Progressive workflow/configuration. The model builds Delaunay/KNN/directional candidates, runs configured Progressive rounds, and optionally applies maximum spanning forest.
+6. Persist the accepted task ID with its input/configuration before polling. Retry transient GET failures with backoff; never automatically retry an ambiguous POST.
+7. On success retrieve full Candidates and final Pipes. Trust final `class=1`, even if the neural score is low. Unselected candidates remain reviewable without becoming final-map alternatives.
+8. Replace one latest-result GeoJSON and OGR layer, restore it on reopen, and rebuild the full-field attribute table. A successful empty graph retains the task, input, candidates, and observation workflow without creating an empty map layer.
 
-The selection handler is obtained lazily from QField only when a map-selection state starts, is throttled to avoid rapid-tap re-entry, closes every feature iterator, and is deregistered as soon as selection finishes or is cancelled. It is not registered during plugin startup or idle map use, so it cannot capture first-install one-finger panning. Tap, Box, and Visible convert screen bounds to a `QgsRectangle` using `QgsPoint` values from `GeometryUtils.point()` before querying the configured layer. Box mode intentionally captures drag gestures until the user switches back to Tap mode.
+The current green `MULTILINESTRING` overlay follows the single OGR layer's legend visibility. The native renderer remains visible as a fallback; the layer owns selection and attributes. A row action zooms to and temporarily highlights its pipe. The result can be exported again, and the completed task supplies the server ZIP URL.
 
-## Mobile Assessment state
+## Observation lifecycle
 
-Service Life Assessment exposes two independent workflows. **Point-based query** accepts a map point or active GNSS fix, submits WGS84 coordinates and the API's internal cast-iron reference size to the live PyPASS point endpoint, and immediately shows nullable soil properties plus fixed- and gauge-material service-life estimates at the explicit point-query gauge. **Raster-based query** accepts material, applicable gauge, and minimum service life before adding one hosted XYZ layer. Changing raster settings does not clear a point result. Missing coverage remains unavailable; it is never converted to zero. PyPASS results are comparisons, not automatic material recommendations.
+The result owns its immutable `input_nodes`, `node_id_field`, `prediction_config`, full candidates, completed job ID, and saved observation snapshot. A separate editable draft plus in-session history support undo, reset-to-saved, and clear-all actions. Draft changes are persisted per project.
 
-The raster workflow retrieves the current XYZ service-life template from the live PyPASS catalog. For the current public proxy, the plugin preserves an encoded terminal dot in `.png` tile paths so requests reach FastAPI, double-encoding it inside the QGIS data-source URI. Direct COG/GeoTIFF selection is intentionally not exposed. Future pipe selection can use a selected pipe midpoint, but that method must be explicitly recorded as `pipe_midpoint` with the source pipe ID.
+Observation pairs use canonical original node IDs, never current row indices/provider FIDs. Connected/disconnected are explicit hard constraints; unknown is omitted. Duplicate equal states collapse; contradictions, invalid/self-pairs, and endpoints outside the original input are rejected. Full candidates supply selected and unselected review rows. Missing manually observed pairs can still have real geometry from the original point snapshot without fabricated model scores.
 
-## Persistence plan
+Two-inlet map selection operates on the original snapshot, so later source-layer edits cannot move or rename an existing result's observations. Confirmed lines are blue and rejected lines red/dashed while editing or submitting. Update sends the complete draft to the parent's `/refine` endpoint. The child retains parent inputs/settings; altered current selection/configuration needs a new prediction.
 
-The v0.6.0 task ID, device-local project mapping, prediction settings, and latest-result path are retained in app settings. The latest-result GeoJSON is stored in the project home folder and its layer is restored automatically, but it is not inserted into or used to rewrite the `.qgs`/`.qgz` file. The result is not automatically synchronized by QFieldCloud. Phone-local mapping does not synchronize to other devices; team-wide inlet defaults should be authored in the QGIS project. Production projects that require synchronization and review should pre-create GeoPackage layers for:
+An accepted child is persisted and polled independently. Successful completion commits its network and applied observation snapshot, then hides temporary observation overlays. Failure/cancellation retains the parent result and draft. Ambiguous POST failure does not issue a duplicate submission. Hard constraints can make a connected solution impossible; the client displays server conflicts without weakening the observations.
 
-- `deeppipe_predicted_pipes`
-- `deeppipe_predicted_structures`
-- `deeppipe_assessments`
+Historical results remain viewable/exportable, but cannot refine without a valid Progressive original-input snapshot. Re-running a new prediction establishes the current workflow safely.
 
-Those layers should own schema, styles, offline-editing policy, QFieldCloud synchronization, and review fields. Job IDs and retry state belong in app settings keyed by project ID; API tokens must use a secure authentication mechanism and must not be stored in the plugin ZIP or ordinary project properties.
+## Map interaction
+
+The point handler is registered only during an explicit inlet, observation-pair, or assessment selection and released when finished/cancelled. It does not capture idle startup map taps. Tap/Box/Visible use QGIS point/rectangle values with CRS conversion and close feature iterators. Box mode captures drag gestures until its interaction ends. Observation map picks use immutable WGS84 input features transformed for the current map.
+
+## Persistence
+
+Device settings retain project mapping, normalized Progressive configuration, latest-result metadata, immutable input, candidates, saved/draft observations, and accepted pending tasks. Saved result records use schema version 2; optional QGIS project setup entries remain schema 1.0. Earlier model settings migrate to Progressive defaults, while historical result provenance remains distinguishable from a new Progressive result.
+
+The latest-result GeoJSON lives in the project folder (or Documents fallback). The plugin does not rewrite the `.qgs`/`.qgz` project or automatically synchronize results/settings through QFieldCloud. Production synchronization should use deliberately configured persistent GeoPackage/provider layers with owned schemas, styles, review policy, and sync behavior. In-session undo history is distinct from the persisted saved/draft snapshots.
+
+## Service-life workflows
+
+Point and raster assessment remain independent. A map/GNSS point immediately requests nullable soil values and material service-life comparisons at the explicit point gauge. Raster selection accepts material, applicable gauge, and minimum service life, then replaces one managed hosted XYZ layer. Changing raster controls does not clear a point result. Null coverage stays unavailable; material comparisons are not recommendations.
+
+The PyPASS catalog supplies current tile templates and valid gauge choices. Encoded-dot PNG transport is retained for the deployed proxy. Direct COG/GeoTIFF URL selection is not exposed.
+
+## Test boundaries
+
+Pure JavaScript tests exercise request/configuration, IDs, snapshots, geometry, classification, and persistence. Native Qt Quick Controls tests exercise the shipped panel. Runtime tests compile the shipped main QML against explicit test-only QField/QGIS/geometry host mocks and drive request/observation lifecycle. These tests cannot validate QGIS provider rendering, platform networking, physical gestures, GNSS, or phone background behavior; use the device matrix for those.

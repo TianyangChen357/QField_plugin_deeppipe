@@ -12,12 +12,15 @@ for (const required of ["main.qml", "metadata.txt", "icon.svg", "results-table.s
 }
 
 const metadata = fs.readFileSync(path.join(pluginRoot, "metadata.txt"), "utf8");
-for (const expected of ["[general]", "name=DeepPipe Mobile", "version=0.6.1", "icon=icon.svg", "description=DeepPipe Stormwater Pipe Prediction and Service Life Assessment for QField"]) {
+for (const expected of ["[general]", "name=DeepPipe Mobile", "icon=icon.svg", "description=DeepPipe Stormwater Pipe Prediction and Service Life Assessment for QField"]) {
   assert.equal(metadata.includes(expected), true, `metadata.txt lacks ${expected}`);
 }
 
+const version = metadata.match(/^version=(.+)$/m)?.[1]?.trim();
+assert.match(version || "", /^\d+\.\d+\.\d+$/);
+
 const main = fs.readFileSync(path.join(pluginRoot, "main.qml"), "utf8");
-assert.equal(main.includes('readonly property string pluginVersion: "0.6.1"'), true, "main.qml has the wrong plugin version");
+assert.equal(main.includes(`readonly property string pluginVersion: "${version}"`), true, "main.qml has the wrong plugin version");
 for (const expected of [
   "iface.addItemToPluginsToolbar",
   "handler.registerHandler",
@@ -98,7 +101,7 @@ for (const removed of ["remoteCog", "remote_cog", "gdalRemoteRasterUri", "apiBas
 }
 
 const panel = fs.readFileSync(path.join(pluginRoot, "DeepPipePanel.qml"), "utf8");
-assert.equal(panel.includes('property string pluginVersion: "0.6.1"'), true, "DeepPipePanel.qml has the wrong plugin version");
+assert.equal(panel.includes(`property string pluginVersion: "${version}"`), true, "DeepPipePanel.qml has the wrong plugin version");
 for (const duplicateFontAssignment of ["font: setupTab.font", "font: predictionTab.font", "font: assessmentTab.font"]) {
   assert.equal(panel.includes(duplicateFontAssignment), false, `DeepPipePanel.qml retains ${duplicateFontAssignment}`);
 }
@@ -110,13 +113,15 @@ for (const expected of [
   "Pipeline Prediction",
   "Service Life Assessment",
   "Check API status",
-  "Number of neighbors (k)",
-  "Enable MST post-processing",
+  "KNN neighbors (k)",
+  "Neighbors per direction",
+  "KNN maximum distance (ft)",
+  "Progressive GNN rounds",
+  "Maximum spanning forest",
   "1  Select inlets on the map",
   "2  Run pipeline prediction",
   "Specify prediction settings (optional)",
   "Reset to DeepPipe defaults",
-  "GNN probability",
   "Pipe material",
   "Not applicable for this material",
   "DeepPipe field guide",
@@ -131,6 +136,17 @@ for (const expected of [
   "Gauge-dependent point estimates use gauge",
   "View Service Life Raster on Map",
   "Clear prediction results",
+  "Field observations",
+  "Update prediction from observations",
+  "Review candidate connections",
+  "observationRequested",
+  "addObservationPairRequested",
+  "finishObservationSelectionRequested",
+  "undoObservationRequested",
+  "resetObservationsRequested",
+  "clearObservationsRequested",
+  "updateObservationsRequested",
+  "predictionBusyIndicator",
 ]) {
   assert.equal(panel.includes(expected), true, `DeepPipePanel.qml lacks ${expected}`);
 }
@@ -146,7 +162,7 @@ assert.ok(
 assert.equal(panel.includes("visible: panel.predictionSettingsExpanded"), true, "advanced prediction controls are not disclosure-controlled");
 assert.equal(panel.includes("Select an inlet layer first"), true, "the ID field lacks its disabled pre-layer state");
 assert.equal(panel.includes("panel.inletLayerId.length > 0 ? panel.fieldNames : []"), true, "the ID field model is not scoped to the selected layer");
-for (const removed of ["predictionLayerBox", "Choose the field inlet layer", "elevationWeightSlider", 'text: "Elevation"']) {
+for (const removed of ["predictionLayerBox", "Choose the field inlet layer", "elevationWeightSlider", 'text: "Elevation"', "modelTypeBox", "thresholdSlider", "toleranceSlider", "roadWidthSlider", "probabilityWeightSlider", "lengthWeightSlider", "mstSwitch", "five-fold", "five fold"]) {
   assert.equal(panel.includes(removed), false, `DeepPipePanel.qml retains removed prediction UI ${removed}`);
 }
 for (const removed of [
@@ -196,8 +212,30 @@ for (const expected of [
   "xyzRasterUri",
   "resolveCatalogUrl",
   "passRasterGauge",
+  "canonicalNodePair",
+  "normalizeObservations",
+  "setObservation",
+  "observationRows",
+  "observationFeatureCollection",
+  "buildRefinementRequest",
+  "effectivePredictionProperties",
 ]) {
   assert.equal(logic.includes(expected), true, `DeepPipe.js lacks ${expected}`);
+}
+
+const requestBlock = logic.match(/function buildPredictionRequest[\s\S]*?\nfunction buildRefinementRequest/)?.[0] || "";
+assert.ok(requestBlock.includes('workflow_type: "progressive"'));
+assert.ok(requestBlock.includes('model_type: "progressive_gnn"'));
+assert.ok(requestBlock.includes("progressive_config"));
+for (const legacy of ["classification_threshold", "threshold_tolerance", "with_mst", "prob_weight", "elev_weight", "length_weight", "max_search_radius"]) {
+  assert.equal(requestBlock.includes(legacy), false, `prediction payload still includes ${legacy}`);
+}
+for (const control of ["progressiveSectorSpinBox", "progressiveKnnSpinBox", "progressiveDistanceSpinBox", "progressiveRoundsSpinBox", "progressiveMsfSwitch"]) {
+  assert.ok(panel.includes(`objectName: "${control}"`), `Missing Progressive setting ${control}`);
+}
+assert.ok(panel.includes("panel.selectedCount >= 4"), "Progressive GNN must require four inlets");
+for (const binding of ["observationRows", "observationDraft", "observationDirty", "canUpdateObservations"]) {
+  assert.ok(panel.includes(`property ${binding === "observationDirty" || binding === "canUpdateObservations" ? "bool" : "var"} ${binding}`));
 }
 
 function balancedDelimiters(text, filename) {

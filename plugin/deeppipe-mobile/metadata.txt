@@ -3,4 +3,4 @@ name=DeepPipe Mobile
 description=DeepPipe Stormwater Pipe Prediction and Service Life Assessment for QField
 author=Tianyang Chen / DeepPipe Team
 icon=icon.svg
-version=0.6.1
+version=0.7.0
