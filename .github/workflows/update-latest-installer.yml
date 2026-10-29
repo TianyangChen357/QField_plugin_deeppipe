@@ -22,14 +22,6 @@ jobs:
           node tests/test_logic.mjs
           node tests/validate_source.mjs
 
-      - name: Install Qt test runtime
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qt6-declarative-dev-tools qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts qml6-module-qtquick-window qml6-module-qtquick-templates qml6-module-qtquick-shapes qml6-module-qtqml-workerscript qml6-module-qttest qml6-module-qtcore
-
-      - name: Test native QML controls and runtime with host fakes
-        run: ./scripts/test_qml.sh
-
       - name: Build installers
         run: ./build.sh
 
@@ -39,3 +31,19 @@ jobs:
           test -n "$VERSION"
           test "$(unzip -p "dist/deeppipe-mobile-v${VERSION}.zip" metadata.txt | awk -F= '$1 == "version" { print $2 }')" = "$VERSION"
           cmp "dist/deeppipe-mobile-v${VERSION}.zip" dist/deeppipe-mobile-latest.zip
+
+  native-qml:
+    runs-on: ubuntu-latest
+    # QtCore.Settings requires Qt >= 6.5. Ubuntu's default Qt 6.4 cannot
+    # instantiate the shipped runtime; use the same Qt 6.8 baseline as local QA.
+    container: debian:trixie-slim
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt test runtime
+        run: |
+          apt-get update
+          apt-get install -y qt6-declarative-dev-tools qml6-module-qtquick qml6-module-qtquick-controls qml6-module-qtquick-layouts qml6-module-qtquick-window qml6-module-qtquick-templates qml6-module-qtquick-shapes qml6-module-qtqml-workerscript qml6-module-qttest qml6-module-qtcore
+
+      - name: Test native QML controls and runtime with host fakes
+        run: ./scripts/test_qml.sh
